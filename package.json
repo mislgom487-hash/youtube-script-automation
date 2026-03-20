@@ -1,0 +1,29 @@
+{
+  "name": "youtube-topic-analyzer",
+  "version": "1.0.0",
+  "description": "YouTube 주제 분석기 - 채널 수집, 키워드 분석, 유사도 비교, 갭 추천",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "nodemon server/index.js",
+    "client": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "better-sqlite3": "^12.6.2",
+    "chart.js": "^4.4.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "google-auth-library": "^10.6.1",
+    "multer": "^1.4.5-lts.1",
+    "sql.js": "^1.11.0",
+    "youtube-transcript": "^1.2.1",
+    "youtube-transcript-plus": "^1.2.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "nodemon": "^3.1.14",
+    "vite": "^6.0.0"
+  }
+}

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 320px;
+            background: #0f0f1a;
+            color: #e8e8f0;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 13px;
+        }
+
+        .header {
+            padding: 16px;
+            background: linear-gradient(135deg, #7c5cff, #4a90d9);
+        }
+
+        .header h1 {
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 11px;
+            opacity: 0.8;
+        }
+
+        .body {
+            padding: 16px;
+        }
+
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .stat-val {
+            font-weight: 700;
+            color: #7c5cff;
+        }
+
+        .status {
+            margin-top: 12px;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .status.ok {
+            background: rgba(52, 211, 153, 0.1);
+            color: #34d399;
+        }
+
+        .status.err {
+            background: rgba(248, 113, 113, 0.1);
+            color: #f87171;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-top: 12px;
+            background: linear-gradient(135deg, #7c5cff, #4a90d9);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .recent {
+            margin-top: 12px;
+        }
+
+        .recent-item {
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            font-size: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>🎬 YouTube 주제 분석기</h1>
+        <p>채널/영상을 바로 수집하세요</p>
+    </div>
+    <div class="body">
+        <div id="content">
+            <div style="text-align:center;padding:20px;">연결 중...</div>
+        </div>
+        <a class="btn" href="http://localhost:5173" target="_blank">🖥️ 웹 앱 열기</a>
+    </div>
+    <script src="popup.js"></script>
+</body>
+
+</html>
