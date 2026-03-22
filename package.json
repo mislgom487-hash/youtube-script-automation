@@ -3,17 +3,22 @@
   "version": "1.0.0",
   "description": "YouTube 주제 분석기 - 채널 수집, 키워드 분석, 유사도 비교, 갭 추천",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "nodemon server/index.js",
     "client": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "electron:dev": "npm run build && node electron/launch.cjs",
+    "electron:build": "npm run build && electron-builder",
+    "rebuild": "electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",
     "better-sqlite3": "^12.6.2",
     "chart.js": "^4.4.0",
     "cors": "^2.8.5",
+    "electron-store": "^10.0.0",
     "express": "^4.21.0",
     "google-auth-library": "^10.6.1",
     "multer": "^1.4.5-lts.1",
@@ -23,7 +28,68 @@
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "electron-rebuild": "^3.2.9",
     "nodemon": "^3.1.14",
     "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "com.yadam.youtube-automation",
+    "productName": "YouTube Script Automation",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "server",
+        "to": "server-bundle",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scripts",
+        "to": "scripts-bundle",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules",
+        "to": "node_modules",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "YouTube Script Automation"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "**/better-sqlite3/**",
+      "**/*.node"
+    ]
   }
 }

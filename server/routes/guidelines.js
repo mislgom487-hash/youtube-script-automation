@@ -2,12 +2,21 @@ import { Router } from 'express';
 import multer from 'multer';
 import { queryAll, queryOne, runSQL } from '../db.js';
 import { readFileSync } from 'fs';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 
 // txt 파일 업로드용 multer 설정
+const uploadDir = process.env.ELECTRON_MODE === 'true'
+  ? path.join(process.env.ELECTRON_USER_DATA, 'data', 'uploads')
+  : 'data/uploads/';
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
 const upload = multer({
-  dest: 'data/uploads/',
+  dest: process.env.ELECTRON_MODE === 'true'
+    ? path.join(process.env.ELECTRON_USER_DATA, 'data', 'uploads')
+    : 'data/uploads/',
   limits: { fileSize: 512000 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'text/plain' ||

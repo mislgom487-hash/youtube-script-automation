@@ -9,8 +9,11 @@ import multer from 'multer';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
 
-try { mkdirSync('data/uploads', { recursive: true }); } catch(e) {}
-const upload = multer({ dest: 'data/uploads/' });
+const settingsUploadDir = process.env.ELECTRON_MODE === 'true'
+    ? path.join(process.env.ELECTRON_USER_DATA, 'data', 'uploads')
+    : 'data/uploads/';
+try { mkdirSync(settingsUploadDir, { recursive: true }); } catch(e) {}
+const upload = multer({ dest: settingsUploadDir });
 
 try {
     const { runSQL: _r } = await import('../db.js');
@@ -94,8 +97,11 @@ router.post('/api-keys', upload.single('service_account_file'), (req, res) => {
         let keyFilePath = '';
         if (key_type === 'google_project_id' && req.file) {
             const uploadedPath = req.file.path;
-            const destDir = path.join(__dirname, '..', 'services');
-            const destPath = path.join(destDir, req.file.originalname);
+            const servicesDir = process.env.ELECTRON_MODE === 'true'
+                ? path.join(process.env.ELECTRON_USER_DATA, 'services')
+                : path.join(__dirname, '..', 'services');
+            if (!fs.existsSync(servicesDir)) fs.mkdirSync(servicesDir, { recursive: true });
+            const destPath = path.join(servicesDir, req.file.originalname);
             fs.renameSync(uploadedPath, destPath);
             keyFilePath = destPath;
 
@@ -149,8 +155,11 @@ router.put('/api-keys/:id', upload.single('service_account_file'), (req, res) =>
 
         let keyFilePath = existing.key_file_path || '';
         if (existing.key_type === 'google_project_id' && req.file) {
-            const destDir = path.join(__dirname, '..', 'services');
-            const destPath = path.join(destDir, req.file.originalname);
+            const servicesDir2 = process.env.ELECTRON_MODE === 'true'
+                ? path.join(process.env.ELECTRON_USER_DATA, 'services')
+                : path.join(__dirname, '..', 'services');
+            if (!fs.existsSync(servicesDir2)) fs.mkdirSync(servicesDir2, { recursive: true });
+            const destPath = path.join(servicesDir2, req.file.originalname);
             fs.renameSync(req.file.path, destPath);
 
             try {
@@ -419,7 +428,13 @@ router.post('/restore', upload.single('file'), async (req, res) => {
                 backup: safeBackup
             });
 
-            setTimeout(() => process.exit(0), 2000);
+            setTimeout(() => {
+                if (process.env.ELECTRON_MODE === 'true' && process.send) {
+                    process.send('restart-requested');
+                } else {
+                    process.exit(0);
+                }
+            }, 2000);
 
         } else {
             // ━━━ 병합 모드 ━━━

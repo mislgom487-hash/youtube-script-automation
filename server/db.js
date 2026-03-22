@@ -4,12 +4,18 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, '..', 'data', 'yadam.db');
-const BACKUP_DIR = path.join(__dirname, '..', 'data', 'backups');
 
-// Ensure data directory exists
-const dataDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+const isElectron = process.env.ELECTRON_MODE === 'true';
+const baseDataDir = isElectron
+  ? path.join(process.env.ELECTRON_USER_DATA, 'data')
+  : path.join(__dirname, '..', 'data');
+
+const DB_PATH = path.join(baseDataDir, 'yadam.db');
+const BACKUP_DIR = path.join(baseDataDir, 'backups');
+
+if (!fs.existsSync(baseDataDir)) {
+  fs.mkdirSync(baseDataDir, { recursive: true });
+}
 
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');

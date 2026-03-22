@@ -15,7 +15,10 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 const __sysdir = path.dirname(fileURLToPath(import.meta.url));
-const __dbPath = path.join(__sysdir, '..', 'data', 'yadam.db');
+const isElectron = process.env.ELECTRON_MODE === 'true';
+const __dbPath = isElectron
+    ? path.join(process.env.ELECTRON_USER_DATA, 'data', 'yadam.db')
+    : path.join(__sysdir, '..', 'data', 'yadam.db');
 import channelsRouter from './routes/channels.js';
 import videosRouter from './routes/videos.js';
 import youtubeRouter from './routes/youtube.js';
@@ -30,13 +33,19 @@ import topicsRouter from './routes/topics.js';
 import thumbReferencesRouter from './routes/thumb-references.js';
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // 정적 파일 서빙 (프론트엔드)
 app.use(express.static(path.join(__sysdir, '..')));
+if (process.env.ELECTRON_MODE === 'true') {
+    const distPath = path.join(__sysdir, '..', 'dist');
+    if (fs.existsSync(distPath)) {
+        app.use(express.static(distPath));
+    }
+}
 
 // API routes
 app.use('/api/channels', channelsRouter);
@@ -100,9 +109,23 @@ async function start() {
         // 백그라운드 워커 자동 시작 비활성화 (AI quota 보호 — 수동 시작만 허용)
         // try { startBackgroundWorker(); console.log('✅ 백그라운드 워커 시작'); } catch (e) { console.error('[WorkerInit]', e.message); }
         console.log('⏸ 백그라운드 워커 자동 시작 비활성화 (수동으로 시작하세요)');
+        if (process.env.ELECTRON_MODE === 'true') {
+            app.get('*', (req, res) => {
+                if (req.path.startsWith('/api')) return res.status(404).json({ error: 'Not Found' });
+                const distIndex = path.join(__sysdir, '..', 'dist', 'index.html');
+                if (fs.existsSync(distIndex)) {
+                    res.sendFile(distIndex);
+                } else {
+                    res.status(404).send('Not Found');
+                }
+            });
+        }
         app.listen(PORT, () => {
             console.log(`🚀 서버 실행 중: http://localhost:${PORT}`);
             console.log(`📊 API: http://localhost:${PORT}/api/health`);
+            if (process.env.ELECTRON_MODE === 'true' && process.send) {
+                process.send('ready');
+            }
         });
     } catch (err) {
         console.error('Failed to start server:', err);
