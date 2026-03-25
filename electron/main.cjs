@@ -134,7 +134,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: '미슬곰 유튜브 분석 프로그램',
-    icon: path.join(__dirname, 'icon.png'),
+    icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

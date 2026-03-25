@@ -2654,6 +2654,51 @@ export async function renderTts(container, { api, navigate, showToast }) {
     if (e.target === voiceListOverlay) closeVoiceListModal();
   });
 
+  function showTtsConfirm(message) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.style.cssText =
+        'position:fixed;top:0;left:0;width:100%;height:100%;' +
+        'background:rgba(0,0,0,0.5);display:flex;align-items:center;' +
+        'justify-content:center;z-index:1000000;';
+
+      const box = document.createElement('div');
+      box.style.cssText =
+        'background:#1e1e2e;border:1px solid #333;border-radius:12px;' +
+        'padding:24px;min-width:320px;max-width:420px;text-align:center;';
+
+      const msg = document.createElement('p');
+      msg.textContent = message;
+      msg.style.cssText =
+        'color:#e0e0e0;font-size:15px;margin:0 0 20px 0;line-height:1.5;';
+
+      const btnWrap = document.createElement('div');
+      btnWrap.style.cssText = 'display:flex;gap:12px;justify-content:center;';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = '취소';
+      cancelBtn.style.cssText =
+        'padding:8px 24px;border-radius:8px;border:1px solid #555;' +
+        'background:transparent;color:#ccc;cursor:pointer;font-size:14px;';
+
+      const confirmBtn = document.createElement('button');
+      confirmBtn.textContent = '삭제';
+      confirmBtn.style.cssText =
+        'padding:8px 24px;border-radius:8px;border:none;' +
+        'background:#e74c3c;color:#fff;cursor:pointer;font-size:14px;';
+
+      cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
+      confirmBtn.addEventListener('click', () => { overlay.remove(); resolve(true); });
+
+      btnWrap.appendChild(cancelBtn);
+      btnWrap.appendChild(confirmBtn);
+      box.appendChild(msg);
+      box.appendChild(btnWrap);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+    });
+  }
+
   function closeVoiceListModal() {
     if (vlModalAudio) { vlModalAudio.pause(); vlModalAudio = null; }
     voiceListOverlay.style.display = 'none';
@@ -2940,7 +2985,8 @@ export async function renderTts(container, { api, navigate, showToast }) {
           const confirmMsg = isSeed
             ? '"' + item.name + '" 시드를 삭제하시겠습니까?'
             : '"' + item.name + '" 을(를) 삭제하시겠습니까?';
-          if (!confirm(confirmMsg)) return;
+          const confirmed = await showTtsConfirm(confirmMsg);
+          if (!confirmed) return;
           try {
             const res = isSeed
               ? await api.ttsDeleteSeed(item.id)

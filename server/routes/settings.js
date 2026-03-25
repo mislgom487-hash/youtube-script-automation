@@ -472,7 +472,10 @@ router.post('/restore', upload.single('file'), async (req, res) => {
             return res.status(400).json({ error: '유효한 SQLite 데이터베이스 파일이 아닙니다' });
         }
 
-        const dbPath = path.resolve('data/yadam.db');
+        const baseDataDir = process.env.ELECTRON_USER_DATA
+            ? path.join(process.env.ELECTRON_USER_DATA, 'data')
+            : path.join(__dirname, '..', 'data');
+        const dbPath = path.join(baseDataDir, 'yadam.db');
 
         // 개인 설정 테이블 — 복원 시 항상 현재 PC 값 유지
         const PERSONAL_TABLES = ['api_keys', 'settings'];

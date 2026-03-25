@@ -36,6 +36,7 @@
     "electron-builder": "^25.0.0",
     "electron-rebuild": "^3.2.9",
     "nodemon": "^3.1.14",
+    "png-to-ico": "^3.0.1",
     "vite": "^6.0.0"
   },
   "build": {
@@ -101,7 +102,7 @@
           ]
         }
       ],
-      "icon": "electron/icon.png"
+      "icon": "electron/icon.ico"
     },
     "nsis": {
       "oneClick": true,
@@ -109,7 +110,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "미슬곰 유튜브 분석 프로그램",
-      "deleteAppDataOnUninstall": false,
+      "deleteAppDataOnUninstall": true,
       "include": "electron/installer.nsh"
     },
     "asar": true,
