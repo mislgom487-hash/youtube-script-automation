@@ -222,6 +222,38 @@ db.exec(`CREATE TABLE IF NOT EXISTS deleted_channels (
   delete_reason_detail TEXT
 )`);
 
+db.exec(`CREATE TABLE IF NOT EXISTS tts_seeds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    seed INTEGER NOT NULL,
+    voice_type TEXT NOT NULL,
+    speaker TEXT,
+    voice_description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
+db.exec(`CREATE TABLE IF NOT EXISTS tts_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    original_text TEXT,
+    voice_type TEXT NOT NULL,
+    speaker TEXT,
+    voice_description TEXT,
+    language TEXT DEFAULT 'Korean',
+    seed INTEGER DEFAULT -1,
+    model_size TEXT DEFAULT '1.7B',
+    duration_seconds REAL,
+    file_size INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tts_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )
+`);
+
 // ── 성능 인덱스 ──────────────────────────────────────────────────────────────
 db.exec(`CREATE INDEX IF NOT EXISTS idx_videos_channel_id ON videos(channel_id)`);
 
@@ -491,16 +523,41 @@ function backupDB() {
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
     const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const filename = `yadam_${ts}.db`;
-    fs.copyFileSync(DB_PATH, path.join(BACKUP_DIR, filename));
-    // Keep last 10 only
-    const files = fs.readdirSync(BACKUP_DIR)
-      .filter(f => f.startsWith('yadam_') && f.endsWith('.db'))
-      .sort();
-    for (const f of files.slice(0, Math.max(0, files.length - 10))) {
-      fs.unlinkSync(path.join(BACKUP_DIR, f));
+    const backupFolderName = `yadam_${ts}`;
+    const backupFolder = path.join(BACKUP_DIR, backupFolderName);
+    fs.mkdirSync(backupFolder, { recursive: true });
+
+    // yadam.db 복사
+    fs.copyFileSync(DB_PATH, path.join(backupFolder, 'yadam.db'));
+
+    // tts-audio 폴더 복사 (비동기, 오류 무시)
+    const userDataBase = isElectron
+      ? process.env.ELECTRON_USER_DATA
+      : path.join(__dirname, '..', 'data');
+    const ttsAudioSrc = path.join(userDataBase, 'tts-audio');
+    const ttsSeedsSrc = path.join(userDataBase, 'tts-seeds-audio');
+
+    if (fs.existsSync(ttsAudioSrc)) {
+      fs.cp(ttsAudioSrc, path.join(backupFolder, 'tts-audio'), { recursive: true }, (err) => {
+        if (err) console.error('[DB] tts-audio 백업 실패:', err.message);
+      });
     }
-    console.log(`[DB] 백업 완료: ${filename}`);
+    if (fs.existsSync(ttsSeedsSrc)) {
+      fs.cp(ttsSeedsSrc, path.join(backupFolder, 'tts-seeds-audio'), { recursive: true }, (err) => {
+        if (err) console.error('[DB] tts-seeds-audio 백업 실패:', err.message);
+      });
+    }
+
+    // 최대 5개 유지 (초과 시 오래된 폴더 삭제)
+    const entries = fs.readdirSync(BACKUP_DIR, { withFileTypes: true })
+      .filter(e => e.isDirectory() && e.name.startsWith('yadam_'))
+      .map(e => e.name)
+      .sort();
+    for (const name of entries.slice(0, Math.max(0, entries.length - 5))) {
+      fs.rmSync(path.join(BACKUP_DIR, name), { recursive: true, force: true });
+    }
+
+    console.log(`[DB] 백업 완료: ${backupFolderName}`);
   } catch(e) {
     console.error('[DB] 백업 실패:', e.message);
   }

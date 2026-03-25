@@ -352,6 +352,11 @@ async function loadChannels(api) {
           currentSort = btn.dataset.sort;
           inactiveFilter = null;
           inactiveChannelMap = new Map();
+
+          // 정렬 버튼 active 클래스 직접 갱신
+          menubarEl.querySelectorAll('.cm-sort-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+
           loadChannels(api);
         });
       });

@@ -1533,7 +1533,7 @@ function attachSuggestionEvents(container, api) {
     item._api = api;
 
     item.addEventListener('click', async (e) => {
-      if (e.target.closest('.script-plan-result') || e.target.closest('.redo-titles-btn') || e.target.closest('.redo-skeleton-btn')) return;
+      if (e.target.closest('.script-plan-result') || e.target.closest('.redo-titles-btn')) return;
 
       const loading = item.querySelector('.script-plan-loading');
       const resultArea = item.querySelector('.script-plan-result');
@@ -1575,112 +1575,6 @@ function attachSuggestionEvents(container, api) {
           </div>
         `;
 
-        // genThemeSkeleton: dna/category/api를 클로저로 캡처, 선택 제목 바로 아래 inline 삽입
-        window.genThemeSkeleton = async (el, selectedTitle, originalTopic) => {
-          console.log('[뼈대] 함수 호출됨:', selectedTitle, '| el:', el);
-          if (!el) return;
-
-          // 기존 선택 해제 + 기존 inline 뼈대 모두 제거
-          const list = el.closest('[data-title-list]');
-          if (list) {
-            list.querySelectorAll('.theme-title-item').forEach(item => {
-              item.style.background = 'rgba(255,255,255,0.03)';
-              item.style.borderColor = 'rgba(255,255,255,0.08)';
-              const cb = item.querySelector('input');
-              if (cb) cb.checked = false;
-            });
-            list.querySelectorAll('.theme-skeleton-inline').forEach(s => s.remove());
-          }
-
-          // 선택 표시
-          el.style.background = 'rgba(255,255,255,0.08)';
-          el.style.borderColor = 'var(--accent)';
-          const cb = el.querySelector('input');
-          if (cb) cb.checked = true;
-
-          // 선택한 제목 바로 아래에 뼈대 영역 삽입
-          el.insertAdjacentHTML('afterend', '<div class="theme-skeleton-inline" style="margin-top:8px;"></div>');
-          const area = el.nextElementSibling;
-
-          // 접혀있으면 펼치기
-          const titlesCol = el.closest('.titles-collapsible-content');
-          if (titlesCol && titlesCol.style.maxHeight === '0px') {
-            titlesCol.style.maxHeight = titlesCol.scrollHeight + 'px';
-            const tBtn = el.closest('.theme-titles-result')?.querySelector('.titles-section-toggle');
-            if (tBtn) tBtn.textContent = '▼ 접기';
-          }
-
-          area.innerHTML = '<div class="flex-center" style="padding:20px; flex-direction:column; gap:10px;"><div class="spinner-sm"></div><div style="font-size:0.75rem;">대본 설계 중...</div></div>';
-
-          try {
-            console.log('[뼈대] API 호출:', { dna, selectedTitle, category });
-            const skelRes = await api.generateDnaSkeleton(dna, selectedTitle, category);
-            console.log('[뼈대] API 응답:', skelRes);
-            const skel = skelRes.skeleton;
-            const ev = skelRes.dna_evidence || {};
-            const evCount = ev.analyzed_video_count ?? '정보 없음';
-            const evHook = ev.hook_type || '정보 없음';
-            const evHookEx = (ev.hook_examples || []).length > 0 ? ` (예: "${ev.hook_examples[0]}")` : '';
-            const evStruct = ev.struct_type || '정보 없음';
-            const evPayoff = ev.payoff_type && ev.payoff_type !== '정보 없음' ? ` → ${ev.payoff_type}` : '';
-            const evEmotion = ev.emotion_peaks || '정보 없음';
-            const evStyle = ev.style_type || '정보 없음';
-
-            area.innerHTML = `
-              <div class="theme-skeleton-card" style="background:rgba(30,30,50,0.95); border:1px solid rgba(99,102,241,0.3); border-radius:12px; padding:20px; width:100%; box-sizing:border-box;">
-                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
-                  <span style="font-weight:900; font-size:1.1rem; color:#e0e0e0;">📋 최종 대본 설계</span>
-                  <div style="display:flex; gap:8px;">
-                    <button class="redo-skel-btn" style="background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.4); padding:6px 14px; border-radius:8px; font-size:0.85rem; cursor:pointer;">🔄 다시 만들기</button>
-                    <button class="dl-skel-btn" style="background:rgba(46,204,64,0.2); color:#6ee7b7; border:1px solid rgba(46,204,64,0.4); padding:6px 14px; border-radius:8px; font-size:0.85rem; cursor:pointer;">📥 TXT 다운로드</button>
-                  </div>
-                </div>
-                <div class="dna-evidence-box" style="padding:10px 14px; background:rgba(99,102,241,0.06); border-radius:8px; border-left:3px solid #6366f1; margin-bottom:16px; font-size:0.85rem; color:#9ca3af; line-height:1.6;">
-                  📊 DNA 분석 근거 &nbsp;|&nbsp; 분석 영상: 떡상 영상 <strong style="color:#e0e0e0;">${evCount}개</strong> 기반 &nbsp;|&nbsp; Hook 패턴: <strong style="color:#e0e0e0;">${evHook}</strong>${evHookEx} &nbsp;|&nbsp; 구조 패턴: <strong style="color:#e0e0e0;">${evStruct}</strong>${evPayoff} &nbsp;|&nbsp; 감정 흐름: ${evEmotion}
-                </div>
-                <div class="skeleton-content" style="color:#e0e0e0; line-height:1.8; font-size:0.95rem; display:flex; flex-direction:column; gap:12px;">
-                  ${skel.sections.map(s => `<div class="skeleton-section"><span style="color:#a5b4fc; font-weight:700;">[${s.name}]</span> ${s.hook_sentence}<br><span style="color:#9ca3af; font-size:0.8rem;">${s.goal}</span></div>`).join('')}
-                  <div class="climax-note" style="border-top:1px solid rgba(99,102,241,0.2); padding-top:12px; color:var(--warning);">✨ 차별화: ${skel.climax_note}</div>
-                </div>
-              </div>
-            `;
-            // 다시 만들기
-            area.querySelector('.redo-skel-btn').addEventListener('click', (e) => {
-              e.stopPropagation();
-              window.genThemeSkeleton(el, selectedTitle, originalTopic);
-            });
-            // TXT 다운로드
-            area.querySelector('.dl-skel-btn').addEventListener('click', (e) => {
-              e.stopPropagation();
-              const sections = area.querySelectorAll('.skeleton-section');
-              const climax = area.querySelector('.climax-note');
-              let text = `[DNA 분석 근거]\n`;
-              text += `분석 영상: 떡상 영상 ${evCount}개 기반\n`;
-              if (evHook !== '정보 없음') text += `Hook 패턴: ${evHook}${evHookEx}\n`;
-              if (evStruct !== '정보 없음') text += `구조 패턴: ${evStruct}${evPayoff}\n`;
-              if (evEmotion !== '정보 없음') text += `감정 흐름: ${evEmotion}\n`;
-              if (evStyle !== '정보 없음') text += `스타일: ${evStyle}\n`;
-              text += `\n[최종 대본 설계]\n제목: ${selectedTitle}\n\n`;
-              sections.forEach(s => { text += s.innerText.replace(/\n\s+/g, '\n').trim() + '\n\n'; });
-              if (climax) text += `\n${climax.innerText}\n`;
-              const blob = new Blob([text], { type: 'text/plain' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `대본뼈대_${selectedTitle.replace(/[\\/:*?"<>|]/g, '_')}.txt`;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
-            });
-            // 뼈대 추가 후 collapsible 높이 재계산
-            if (titlesCol) titlesCol.style.maxHeight = titlesCol.scrollHeight + 'px';
-            area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          } catch (err) {
-            area.innerHTML = `<div style="color:var(--danger);">❌ 실패: ${err.message}</div>`;
-          }
-        };
-
         // Event: Recommend Titles for this DNA
         const titleBtn = resultArea.querySelector('.theme-recommend-titles-btn');
         const titlesResult = resultArea.querySelector('.theme-titles-result');
@@ -1713,12 +1607,6 @@ function attachSuggestionEvents(container, api) {
                   </label>
                 `).join('')}
               </div>
-              <div style="margin-top:14px; text-align:right;">
-                <button class="theme-gen-skeleton-btn" disabled
-                  style="background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); padding:8px 20px; border-radius:8px; font-size:0.9rem; font-weight:700; cursor:not-allowed; opacity:0.5; transition:all 0.2s;">
-                  📝 대본 뼈대 생성
-                </button>
-              </div>
             </div><!-- /titles-collapsible-content -->
           `;
 
@@ -1735,8 +1623,7 @@ function attachSuggestionEvents(container, api) {
             });
           }
 
-          // 라디오 선택 → 하이라이트 + "대본 뼈대 생성" 버튼 활성화
-          const genSkelBtn = titlesResult.querySelector('.theme-gen-skeleton-btn');
+          // 라디오 선택 → 하이라이트
           titlesResult.querySelectorAll('input[name="theme-title-radio"]').forEach(radio => {
             radio.addEventListener('change', () => {
               // 하이라이트 초기화
@@ -1750,26 +1637,8 @@ function attachSuggestionEvents(container, api) {
                 label.style.background = 'rgba(99,102,241,0.1)';
                 label.style.borderColor = 'rgba(99,102,241,0.5)';
               }
-              // 버튼 활성화
-              if (genSkelBtn) {
-                genSkelBtn.disabled = false;
-                genSkelBtn.style.cursor = 'pointer';
-                genSkelBtn.style.opacity = '1';
-                genSkelBtn.style.background = 'rgba(99,102,241,0.3)';
-              }
             });
           });
-
-          // 대본 뼈대 생성 버튼 클릭
-          if (genSkelBtn) {
-            genSkelBtn.addEventListener('click', (e) => {
-              e.stopPropagation();
-              const checkedRadio = titlesResult.querySelector('input[name="theme-title-radio"]:checked');
-              if (!checkedRadio) return;
-              const selectedLabel = checkedRadio.closest('.theme-title-item');
-              window.genThemeSkeleton(selectedLabel, checkedRadio.value, title);
-            });
-          }
 
           // 다시 추천 버튼
           const redoInnerBtn = titlesResult.querySelector('.redo-titles-inner-btn');
@@ -2142,7 +2011,6 @@ async function runEconomyAnalysisV3(api, period) {
  */
 async function handleKeywordClickV3(api, kwData) {
   const topicList = document.getElementById('v3-topic-list');
-  const skeletonArea = document.getElementById('v3-skeleton-content');
 
   topicList.innerHTML = `
     <div style="text-align:center; padding:60px 16px;">
@@ -2383,38 +2251,6 @@ window.__forceResetAnalysis = function () {
   }
 };
 
-window.redoThemeSkeleton = (btn, selectedTitle, originalTopic) => {
-  const resultArea = btn.closest('.theme-titles-result');
-  const selectedEl = Array.from(resultArea.querySelectorAll('.theme-title-item')).find(el => el.querySelector('input').checked);
-  if (typeof window.genThemeSkeleton === 'function') {
-    window.genThemeSkeleton(selectedEl, selectedTitle, originalTopic);
-  }
-};
-
-window.downloadThemeSkeleton = (btn, title) => {
-  const card = btn.closest('.card');
-  const sections = card.querySelectorAll('.skeleton-section');
-  const climax = card.querySelector('.climax-note');
-
-  let text = `[최종 대본 설계]\n제목: ${title}\n\n`;
-  sections.forEach(s => {
-    const cleanText = s.innerText.replace(/\n\s+/g, '\n').trim();
-    text += `${cleanText}\n\n`;
-  });
-  if (climax) text += `\n${climax.innerText}\n`;
-
-  const blob = new Blob([text], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_');
-  a.download = `대본뼈대_${safeTitle}.txt`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  showToast('기획안이 TXT 파일로 다운로드되었습니다.', 'success');
-};
 
 // ── 떡상 영상 선택 모달 (1차) ─────────────────────────────────────────────────
 // ── DNA 콘텐츠 렌더링 헬퍼 ──────────────────────────────────────────────────
@@ -3619,7 +3455,7 @@ function attachNewSuggestionEvents(container, api, dnaResponse, catX, groupTag) 
 
           titleResult.innerHTML = `
             <div class="topic-titles-list">
-              <p class="topic-titles-guide">제목을 선택한 후 대본 뼈대를 생성할 수 있습니다</p>
+              <p class="topic-titles-guide">제목을 선택하세요</p>
               ${titles.map(t => `
                 <label class="topic-title-radio-item">
                   <input type="radio" name="topic-title-${itemIdx}" value="${(t.title || '').replace(/"/g, '&quot;')}">
@@ -3631,13 +3467,11 @@ function attachNewSuggestionEvents(container, api, dnaResponse, catX, groupTag) 
                 </label>
               `).join('')}
               <div style="display:flex; gap:8px; margin-top:10px;">
-                <button class="topic-skeleton-btn" disabled>📝 대본 뼈대 생성</button>
                 <button class="topic-titles-refresh-btn">🔄 다시 추천</button>
               </div>
             </div>
           `;
 
-          const skelBtn = titleResult.querySelector('.topic-skeleton-btn');
           const refreshBtn = titleResult.querySelector('.topic-titles-refresh-btn');
 
           // 라디오 선택 이벤트
@@ -3645,7 +3479,6 @@ function attachNewSuggestionEvents(container, api, dnaResponse, catX, groupTag) 
             radio.addEventListener('change', () => {
               titleResult.querySelectorAll('.topic-title-radio-item').forEach(lbl => lbl.classList.remove('selected'));
               radio.closest('.topic-title-radio-item')?.classList.add('selected');
-              skelBtn.disabled = false;
             });
           });
 
@@ -3654,94 +3487,6 @@ function attachNewSuggestionEvents(container, api, dnaResponse, catX, groupTag) 
             e.stopPropagation();
             titleGenBtn.textContent = '🎯 후킹 제목 10종 생성하기';
             doFetchTitles();
-          });
-
-          // 대본 뼈대 생성
-          skelBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const checkedRadio = titleResult.querySelector(`input[name="topic-title-${itemIdx}"]:checked`);
-            if (!checkedRadio) return;
-            const selectedTitle = checkedRadio.value;
-
-            skelBtn.disabled = true;
-            skelBtn.textContent = '⏳ 대본 생성 중...';
-
-            const doGenSkeleton = async () => {
-              try {
-                const skelRes = await api.generateDnaSkeleton(dna, selectedTitle, category);
-                const skel = skelRes.skeleton;
-
-                const existingSkelResult = titleResult.querySelector('.topic-skeleton-result');
-                if (existingSkelResult) existingSkelResult.remove();
-
-                const skelDiv = document.createElement('div');
-                skelDiv.className = 'topic-skeleton-result';
-                skelDiv.innerHTML = `
-                  <h4>📝 대본 뼈대</h4>
-                  <div class="topic-skeleton-title">제목: ${skel.title || selectedTitle}</div>
-                  <div class="topic-skeleton-sections">
-                    ${(skel.sections || []).map(sec => `
-                      <div class="topic-skeleton-section">
-                        <div class="topic-skeleton-section-name">${sec.name || ''}</div>
-                        ${sec.hook_sentence ? `<div class="topic-skeleton-hook">🎣 ${sec.hook_sentence}</div>` : ''}
-                        <div class="topic-skeleton-goal">${sec.goal || ''}</div>
-                      </div>
-                    `).join('')}
-                  </div>
-                  ${skel.climax_note ? `<div class="topic-skeleton-climax">🔥 클라이맥스: ${skel.climax_note}</div>` : ''}
-                  ${skel.ending_sentence ? `<div class="topic-skeleton-ending">🎬 엔딩: ${skel.ending_sentence}</div>` : ''}
-                  <div class="topic-skeleton-actions">
-                    <button class="topic-skeleton-refresh-btn">🔄 다시 만들기</button>
-                    <button class="topic-skeleton-download-btn">📥 TXT 다운로드</button>
-                  </div>
-                `;
-
-                skelDiv.querySelector('.topic-skeleton-refresh-btn').addEventListener('click', (e) => {
-                  e.stopPropagation();
-                  skelBtn.disabled = true;
-                  skelBtn.textContent = '⏳ 대본 생성 중...';
-                  doGenSkeleton();
-                });
-
-                skelDiv.querySelector('.topic-skeleton-download-btn').addEventListener('click', (e) => {
-                  e.stopPropagation();
-                  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-                  const shortTitle = selectedTitle.slice(0, 20).replace(/[\\/:*?"<>|]/g, '_');
-                  let text = `[대본 뼈대]\n제목: ${skel.title || selectedTitle}\n\n`;
-                  (skel.sections || []).forEach(sec => {
-                    text += `[${sec.name}]\n`;
-                    if (sec.hook_sentence) text += `훅: ${sec.hook_sentence}\n`;
-                    text += `목표: ${sec.goal}\n\n`;
-                  });
-                  if (skel.climax_note) text += `클라이맥스: ${skel.climax_note}\n`;
-                  if (skel.ending_sentence) text += `엔딩: ${skel.ending_sentence}\n`;
-                  const blob = new Blob([text], { type: 'text/plain' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url; a.download = `대본뼈대_${shortTitle}_${today}.txt`;
-                  document.body.appendChild(a); a.click();
-                  document.body.removeChild(a); URL.revokeObjectURL(url);
-                });
-
-                titleResult.appendChild(skelDiv);
-                skelBtn.disabled = false;
-                skelBtn.textContent = '📝 대본 뼈대 생성';
-                skelDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-              } catch (err) {
-                skelBtn.disabled = false;
-                skelBtn.textContent = '📝 대본 뼈대 생성';
-                const existingSkelResult = titleResult.querySelector('.topic-skeleton-result');
-                if (existingSkelResult) existingSkelResult.remove();
-                const errDiv = document.createElement('div');
-                errDiv.className = 'topic-skeleton-result';
-                errDiv.innerHTML = `<p style="color:var(--danger); font-size:0.85rem;">❌ 실패: ${err.message}</p>
-                  <button class="topic-skeleton-refresh-btn" style="margin-top:8px;">다시 시도</button>`;
-                errDiv.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); doGenSkeleton(); });
-                titleResult.appendChild(errDiv);
-              }
-            };
-
-            doGenSkeleton();
           });
 
           titleGenBtn.innerHTML = `${icons.success(14)} 제목 추천 완료`;

@@ -3,8 +3,13 @@ import { queryAll, queryOne, runSQL, getDB, saveDB } from '../db.js';
 import { resetClient, suggestMaterials, suggestKeywords } from '../services/gemini-service.js';
 import fs, { mkdirSync } from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
+const Archiver = _require('archiver');
+const AdmZip = _require('adm-zip');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -103,7 +108,7 @@ router.post('/api-keys', upload.single('service_account_file'), (req, res) => {
             if (!fs.existsSync(servicesDir)) fs.mkdirSync(servicesDir, { recursive: true });
             const destPath = path.join(servicesDir, req.file.originalname);
             fs.renameSync(uploadedPath, destPath);
-            keyFilePath = destPath;
+            keyFilePath = req.file.originalname; // 파일명만 저장 (경로 이식성)
 
             try {
                 const saJson = JSON.parse(fs.readFileSync(destPath, 'utf8'));
@@ -173,10 +178,14 @@ router.put('/api-keys/:id', upload.single('service_account_file'), (req, res) =>
                 return res.status(400).json({ error: 'JSON 파싱 실패' });
             }
 
-            if (keyFilePath && fs.existsSync(keyFilePath)) {
-                fs.unlinkSync(keyFilePath);
+            // 기존 파일 삭제 (절대경로 또는 파일명 모두 처리)
+            if (keyFilePath) {
+                const oldAbsolute = path.isAbsolute(keyFilePath)
+                    ? keyFilePath
+                    : path.join(servicesDir2, keyFilePath);
+                if (fs.existsSync(oldAbsolute)) fs.unlinkSync(oldAbsolute);
             }
-            keyFilePath = destPath;
+            keyFilePath = req.file.originalname; // 파일명만 저장 (경로 이식성)
         }
 
         runSQL(
@@ -198,10 +207,6 @@ router.put('/api-keys/:id', upload.single('service_account_file'), (req, res) =>
 router.delete('/api-keys/:id', (req, res) => {
     try {
         const db = getDB();
-        const key = db.prepare(`SELECT is_active FROM api_keys WHERE id = ?`).get(req.params.id);
-        if (key && key.is_active === 1) {
-            return res.status(400).json({ error: '사용 중인 키는 삭제할 수 없습니다. 다른 키를 활성화한 후 삭제하세요.' });
-        }
         db.prepare(`DELETE FROM api_keys WHERE id = ?`).run(req.params.id);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -348,43 +353,77 @@ router.post('/categories/preset', (req, res) => {
 
 // POST /api/settings/backup
 router.post('/backup', async (req, res) => {
-    const backupDir = path.resolve('data/backups');
-    try { mkdirSync(backupDir, { recursive: true }); } catch(e) {}
-
-    const filename = `yadam_backup_${new Date().toISOString().slice(0, 10)}.db`;
-    const backupPath = path.join(backupDir, filename);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yadam-backup-'));
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const zipFilename = `yadam_backup_${ts}.zip`;
+    const zipPath = path.join(tmpDir, zipFilename);
+    const dbBackupPath = path.join(tmpDir, 'yadam.db');
 
     try {
+        // 1. DB 백업
         const db = getDB();
-        // better-sqlite3 공식 Online Backup API — 비블로킹, 크기 무관
-        await db.backup(backupPath, {
+        await db.backup(dbBackupPath, {
             progress({ totalPages, remainingPages }) {
                 const pct = ((totalPages - remainingPages) / totalPages * 100).toFixed(1);
-                console.log(`[백업] 진행: ${pct}%`);
+                console.log(`[백업] DB 진행: ${pct}%`);
                 return 200;
             }
         });
 
-        const stat = fs.statSync(backupPath);
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        // 2. tts-audio / tts-seeds-audio 폴더 경로
+        const userDataBase = process.env.ELECTRON_USER_DATA || path.join(process.cwd(), 'data');
+        const ttsAudioSrc = path.join(userDataBase, 'tts-audio');
+        const ttsSeedsSrc = path.join(userDataBase, 'tts-seeds-audio');
+
+        // 3. zip 생성
+        await new Promise((resolve, reject) => {
+            const output = fs.createWriteStream(zipPath);
+            const archive = Archiver('zip', { zlib: { level: 5 } });
+            archive.on('error', reject);
+            output.on('close', resolve);
+            archive.pipe(output);
+
+            // yadam.db
+            archive.file(dbBackupPath, { name: 'yadam.db' });
+
+            // tts-audio (존재하고 비어있지 않은 경우)
+            if (fs.existsSync(ttsAudioSrc) && fs.readdirSync(ttsAudioSrc).length > 0) {
+                archive.directory(ttsAudioSrc, 'tts-audio');
+            }
+
+            // tts-seeds-audio (존재하고 비어있지 않은 경우)
+            if (fs.existsSync(ttsSeedsSrc) && fs.readdirSync(ttsSeedsSrc).length > 0) {
+                archive.directory(ttsSeedsSrc, 'tts-seeds-audio');
+            }
+
+            archive.finalize();
+        });
+
+        // 4. zip 전송
+        const stat = fs.statSync(zipPath);
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
         res.setHeader('Content-Length', stat.size);
 
-        const stream = fs.createReadStream(backupPath);
+        const stream = fs.createReadStream(zipPath);
         stream.pipe(res);
-        stream.on('end', () => {
-            try { fs.unlinkSync(backupPath); } catch(e) {}
+        stream.on('close', () => {
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(e) {}
         });
         stream.on('error', (err) => {
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(e) {}
             if (!res.headersSent) res.status(500).json({ error: '다운로드 실패: ' + err.message });
         });
+
     } catch (err) {
-        try { fs.unlinkSync(backupPath); } catch(e) {}
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(e) {}
         res.status(500).json({ error: '백업 실패: ' + err.message });
     }
 });
 
-// POST /api/settings/restore — restore DB from uploaded file
+// POST /api/settings/restore — restore DB (and optionally TTS audio) from .db or .zip
 router.post('/restore', upload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: '파일이 없습니다' });
@@ -392,39 +431,115 @@ router.post('/restore', upload.single('file'), async (req, res) => {
 
     const mode = req.body.mode || 'replace';
     const uploadedPath = req.file.path;
+    const isZip = req.file.originalname.endsWith('.zip');
+    let tmpExtractDir = null;
 
     try {
         const Database = (await import('better-sqlite3')).default;
+        const userDataBase = process.env.ELECTRON_USER_DATA || path.join(process.cwd(), 'data');
+
+        let dbFilePath = uploadedPath; // .db 파일 경로 (zip이면 압축 해제 후 변경)
+
+        // ── ZIP 압축 해제 ─────────────────────────────────────────────────────
+        if (isZip) {
+            tmpExtractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yadam-restore-'));
+            try {
+                const zip = new AdmZip(uploadedPath);
+                zip.extractAllTo(tmpExtractDir, true);
+            } catch (e) {
+                try { fs.rmSync(tmpExtractDir, { recursive: true, force: true }); } catch(x) {}
+                try { fs.unlinkSync(uploadedPath); } catch(x) {}
+                return res.status(400).json({ error: '유효한 zip 파일이 아닙니다: ' + e.message });
+            }
+
+            const extractedDb = path.join(tmpExtractDir, 'yadam.db');
+            if (!fs.existsSync(extractedDb)) {
+                try { fs.rmSync(tmpExtractDir, { recursive: true, force: true }); } catch(x) {}
+                try { fs.unlinkSync(uploadedPath); } catch(x) {}
+                return res.status(400).json({ error: 'zip 파일 안에 yadam.db가 없습니다' });
+            }
+            dbFilePath = extractedDb;
+        }
 
         // 유효한 SQLite DB 파일인지 검증
         let uploadedDb;
         try {
-            uploadedDb = new Database(uploadedPath, { readonly: true });
+            uploadedDb = new Database(dbFilePath, { readonly: true });
             uploadedDb.prepare('SELECT 1').get();
         } catch (e) {
+            if (tmpExtractDir) try { fs.rmSync(tmpExtractDir, { recursive: true, force: true }); } catch(x) {}
             try { fs.unlinkSync(uploadedPath); } catch(x) {}
             return res.status(400).json({ error: '유효한 SQLite 데이터베이스 파일이 아닙니다' });
         }
 
         const dbPath = path.resolve('data/yadam.db');
 
+        // 개인 설정 테이블 — 복원 시 항상 현재 PC 값 유지
+        const PERSONAL_TABLES = ['api_keys', 'settings'];
+
         if (mode === 'replace') {
             // ━━━ 전체 교체 모드 ━━━
             const safeBackup = dbPath + '.before-restore.' + Date.now();
             fs.copyFileSync(dbPath, safeBackup);
 
-            uploadedDb.close();
-            fs.copyFileSync(uploadedPath, dbPath);
-            fs.unlinkSync(uploadedPath);
+            // 1. 현재 DB에서 개인 설정 테이블 메모리에 보존
+            const currentDb = new Database(dbPath);
+            const personalData = {};
+            for (const table of PERSONAL_TABLES) {
+                try {
+                    personalData[table] = currentDb.prepare(`SELECT * FROM "${table}"`).all();
+                } catch (e) { personalData[table] = []; }
+            }
+            currentDb.close();
 
-            // WAL, SHM 파일 정리
+            // 2. 업로드된 DB로 교체
+            uploadedDb.close();
+            fs.copyFileSync(dbFilePath, dbPath);
             try { fs.unlinkSync(dbPath + '-wal'); } catch(e) {}
             try { fs.unlinkSync(dbPath + '-shm'); } catch(e) {}
+
+            // 3. 교체된 DB에 개인 설정 복원
+            const restoredDb = new Database(dbPath);
+            for (const table of PERSONAL_TABLES) {
+                const rows = personalData[table];
+                if (!rows || rows.length === 0) continue;
+                try {
+                    const cols = Object.keys(rows[0]);
+                    const placeholders = cols.map(() => '?').join(',');
+                    const stmt = restoredDb.prepare(
+                        `INSERT OR REPLACE INTO "${table}" (${cols.join(',')}) VALUES (${placeholders})`
+                    );
+                    const tx = restoredDb.transaction((rows) => {
+                        for (const row of rows) stmt.run(...cols.map(c => row[c]));
+                    });
+                    tx(rows);
+                } catch (e) { /* 테이블 없으면 무시 */ }
+            }
+            restoredDb.close();
+
+            // 4. zip이면 TTS 오디오 복원
+            if (isZip && tmpExtractDir) {
+                const audioFolders = ['tts-audio', 'tts-seeds-audio'];
+                for (const folder of audioFolders) {
+                    const src = path.join(tmpExtractDir, folder);
+                    if (fs.existsSync(src)) {
+                        const dest = path.join(userDataBase, folder);
+                        if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+                        for (const file of fs.readdirSync(src)) {
+                            fs.copyFileSync(path.join(src, file), path.join(dest, file));
+                        }
+                    }
+                }
+            }
+
+            // 5. 정리
+            try { fs.unlinkSync(uploadedPath); } catch(e) {}
+            if (tmpExtractDir) try { fs.rmSync(tmpExtractDir, { recursive: true, force: true }); } catch(e) {}
 
             res.json({
                 success: true,
                 mode: 'replace',
-                message: '전체 교체 완료. 서버가 2초 후 재시작됩니다.',
+                message: '전체 교체 완료. 서버가 2초 후 재시작됩니다. (API 키/개인 설정 보존됨)',
                 backup: safeBackup
             });
 
@@ -440,11 +555,12 @@ router.post('/restore', upload.single('file'), async (req, res) => {
             // ━━━ 병합 모드 ━━━
             const currentDb = new Database(dbPath);
 
-            // _backup_ 테이블은 병합 대상에서 제외
+            // _backup_ 테이블 및 개인 설정 테이블은 병합 대상에서 제외
             const tables = uploadedDb.prepare(
                 `SELECT name FROM sqlite_master
                  WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_backup%'`
-            ).all().map(t => t.name);
+            ).all().map(t => t.name)
+            .filter(t => !PERSONAL_TABLES.includes(t));
 
             let totalAdded = 0;
             const details = {};
@@ -487,7 +603,25 @@ router.post('/restore', upload.single('file'), async (req, res) => {
 
             uploadedDb.close();
             currentDb.close();
-            fs.unlinkSync(uploadedPath);
+
+            // zip이면 TTS 오디오 병합 복원 (동일 파일명 덮어쓰기)
+            if (isZip && tmpExtractDir) {
+                const audioFolders = ['tts-audio', 'tts-seeds-audio'];
+                for (const folder of audioFolders) {
+                    const src = path.join(tmpExtractDir, folder);
+                    if (fs.existsSync(src)) {
+                        const dest = path.join(userDataBase, folder);
+                        if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+                        for (const file of fs.readdirSync(src)) {
+                            fs.copyFileSync(path.join(src, file), path.join(dest, file));
+                        }
+                    }
+                }
+            }
+
+            // 정리
+            try { fs.unlinkSync(uploadedPath); } catch(e) {}
+            if (tmpExtractDir) try { fs.rmSync(tmpExtractDir, { recursive: true, force: true }); } catch(e) {}
 
             res.json({
                 success: true,
@@ -499,6 +633,7 @@ router.post('/restore', upload.single('file'), async (req, res) => {
         }
     } catch (err) {
         try { fs.unlinkSync(uploadedPath); } catch (e) {}
+        if (tmpExtractDir) try { fs.rmSync(tmpExtractDir, { recursive: true, force: true }); } catch(e) {}
         res.status(500).json({ error: '복원 실패: ' + err.message });
     }
 });

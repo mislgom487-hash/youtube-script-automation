@@ -16,6 +16,20 @@ function logError(msg) {
 let genaiModule = null;
 let aiClient = null;
 
+function getServicesDir() {
+    if (process.env.ELECTRON_MODE === 'true' && process.env.ELECTRON_USER_DATA) {
+        return path.join(process.env.ELECTRON_USER_DATA, 'services');
+    }
+    return path.join(__dirname, '..', 'services');
+}
+
+// 파일명 또는 절대경로를 받아 항상 절대경로로 반환 (DB 이식 호환)
+function resolveKeyFilePath(keyFilePath) {
+    if (!keyFilePath) return null;
+    if (path.isAbsolute(keyFilePath)) return keyFilePath;
+    return path.join(getServicesDir(), keyFilePath);
+}
+
 async function getVertexAccessToken() {
     const fsM = await import('fs');
     const pathM = await import('path');
@@ -29,7 +43,9 @@ async function getVertexAccessToken() {
         throw new Error('서비스 계정 JSON 파일이 등록되지 않았습니다. 설정에서 업로드해 주세요.');
     }
 
-    const absolutePath = pathM.default.resolve(keyFilePath);
+    // 절대경로(기존 데이터) 또는 파일명(신규 데이터) 모두 처리
+    const absolutePath = resolveKeyFilePath(keyFilePath);
+
     if (!fsM.default.existsSync(absolutePath)) {
         throw new Error('서비스 계정 JSON 파일을 찾을 수 없습니다: ' + absolutePath);
     }
@@ -108,7 +124,7 @@ export async function callGemini(prompt, options = {}, apiType = null) {
                 const serviceAccount = queryOne("SELECT key_file_path FROM api_keys WHERE key_type = 'google_project_id' AND is_active = 1");
                 if (!serviceAccount?.key_file_path) throw new Error('서비스 계정 JSON 파일이 등록되지 않았습니다.');
                 const fsV = await import('fs');
-                const saJson = JSON.parse(fsV.default.readFileSync(serviceAccount.key_file_path, 'utf8'));
+                const saJson = JSON.parse(fsV.default.readFileSync(resolveKeyFilePath(serviceAccount.key_file_path), 'utf8'));
                 const saProjectId = saJson.project_id;
                 const location = queryOne("SELECT value FROM settings WHERE key = 'google_location'")?.value?.trim() || 'us-central1';
                 const accessToken = await getVertexAccessToken();
@@ -122,7 +138,7 @@ export async function callGemini(prompt, options = {}, apiType = null) {
                     const serviceAccount = queryOne("SELECT key_file_path FROM api_keys WHERE key_type = 'google_project_id' AND is_active = 1");
                     if (serviceAccount?.key_file_path) {
                         const fsV = await import('fs');
-                        const saJson = JSON.parse(fsV.default.readFileSync(serviceAccount.key_file_path, 'utf8'));
+                        const saJson = JSON.parse(fsV.default.readFileSync(resolveKeyFilePath(serviceAccount.key_file_path), 'utf8'));
                         const saProjectId = saJson.project_id;
                         const location = queryOne("SELECT value FROM settings WHERE key = 'google_location'")?.value?.trim() || 'us-central1';
                         const accessToken = await getVertexAccessToken();
@@ -658,207 +674,6 @@ JSON 배열로만 응답하세요:
 }
 
 /**
- * 2. v2.0 야담 대본 뼈대 설계 (역사 야담 및 드라마 기획 전문가 페르소나)
- * @param {object} dnaSummary - 떡상 DNA 패턴 객체
- */
-async function generateYadamSkeletonV2(topicTitle, keywords, contextStr, dnaSummary = null) {
-    const dnaPrompt = dnaSummary ? `
-[필수 반영: 성공 DNA 구조]
-최근 떡상한 야담 영상들에서 발견된 '흥행 보증' 구조입니다. 이 패턴을 이야기의 뼈대로 삼으십시오:
-- 주요 관계 패턴: ${dnaSummary.dna.relationshipTop.map(i => i.k).join(', ')}
-- 핵심 사건 패턴: ${dnaSummary.dna.eventTop.map(i => i.k).join(', ')}
-- 감어 키워드 패턴: ${dnaSummary.dna.emotionTop.map(i => i.k).join(', ')}
-- 반전 장치 패턴: ${dnaSummary.dna.twistTop.map(i => i.k).join(', ')}
-
-[작성 지침]
-위의 DNA 패턴 중 가장 적합한 요소를 골라 7단계 구조에 녹여내십시오. 
-특히 '관계'와 '반전'은 DNA 패턴을 벤치마킹하되, 구체적인 소재와 인물 설정은 기존 영상들과 겹치지 않게 '재조합'하십시오.
-` : "";
-
-    const prompt = `당신은 역사 야담 및 드라마 시나리오 기획 전문가입니다.
-시니어 시청자층의 몰입도를 극대화하는 '구조 기반 설계' 대본 뼈대를 작성하는 것이 목적입니다.
-${dnaPrompt}
-
-[핵심 원칙]
-- 문체(20%)보다 구조(80%)에 집중하십시오. 사건보다 감정이 먼저입니다.
-- 대본을 먼저 쓰지 말고 반드시 뼈대부터 완성하십시오.
-
-[공식 - 7단계 구조]
-아래 순서와 구성을 반드시 엄수하십시오:
-① 충격 사건: 설명 없이 사건부터 시작(위험 상황, 충격 장면 등)
-② 의심 발생: 이상 징후와 궁금증 고리 배치
-③ 갈등 확대: 최소 2개 이상의 갈등 축 설정(부모vs자식, 욕망vs양심 등)
-④ 단서 발견: 정보를 점진적으로 공개(초반 - 정보부족, 중반 - 단서일부)
-⑤ 반전 조짐: 정보가 연결되며 긴장을 최고조로 상승
-⑥ 진실 공개: 강렬한 감정 반전 삽입(댓글 반응 유도 핵심)
-⑦ 감정 여운: 설명하지 않고 여운을 남기는 엔딩
-
-[분석 지침]
-- 감정 곡선: 불안 → 희망 → 의심 → 위기 → 충격 → 이해 → 여운
-- 인물: 3~6명 유지, 각 인물은 명확한 동기를 가짐
-- 반복 장치: 특정 물건 / 말 / 습관을 상징적으로 활용
-
-[분석 기초 데이터]
-주제: ${topicTitle}
-키워드: ${keywords.join(', ')}
-${contextStr}
-
-JSON 객체로만 응답하세요:
-{
-  "differentiation": "인물 동기 및 차별화 포인트",
-  "dna_usage": "어떤 DNA 패턴(관계/반전 등)을 구조에 반영했는지 설명",
-  "script_skeleton": {
-    "step1_shock": "충격 사건 (DNA 사건 패턴 참고)",
-    "step2_doubt": "의심 발생 (이상 현상)",
-    "step3_conflict": "갈등 확대 (DNA 관계 패턴 기반)",
-    "step4_clue": "단서 발견 (점진 공개)",
-    "step5_flash": "반전 조짐 (긴장 상승)",
-    "step6_truth": "진실 공개 (DNA 반전 패턴 반영)",
-    "step7_resonance": "감정 여운 (엔딩 설계)"
-  }
-}
-모든 내용은 한국어로 작성하세요.`;
-
-    const result = await callGemini(prompt, { useGoogleSearch: true });
-    return parseGeminiJson(result, null);
-}
-
-/**
- * 3. 경제 전용 대본 뼈대 설계 (거시경제 애널리스트 + 유튜브 시놉시스 전문가)
- */
-async function generateEconomySkeletonV2(topicTitle, keywords, contextStr) {
-    const prompt = `당신은 20년 경력 거시경제 및 금융시장 전문 애널리스트이자
-유튜브 경제 채널 시놉시스 설계 전문가입니다.
-
-지금부터 완성 대본을 쓰지 말고
-"클로드 4.6이 각색하기 가장 좋은 고밀도 대본 뼈대"만 설계하십시오.
-
-[분석 기초 데이터]
-주제: ${topicTitle}
-키워드: ${keywords.join(', ')}
-${contextStr}
-
-[목표]
-1. 조회수 후킹 구조 극대화
-2. 정보 지연 공개 구조 설계
-3. 데이터 기반 긴장 설계
-4. 감정 곡선 설계
-5. 클로드가 살을 붙이기 쉬운 구조 제공
-
-[출력 형식 — JSON으로만 응답하세요]
-
-{
-  "core_message": "전체 영상 한 줄 핵심 메시지 (단정 금지, 결론 금지)",
-
-  "five_parts": [
-    {
-      "part_number": 1,
-      "purpose": "이 파트의 목적",
-      "viewer_emotion": "시청자가 느껴야 할 감정",
-      "data_to_reveal": "공개할 데이터 종류",
-      "hidden_info": "의도적으로 숨길 정보",
-      "tension_device": "긴장 장치",
-      "ending_hook": "엔딩 훅 문장 초안"
-    }
-  ],
-
-  "data_slots": {
-    "latest_data": ["[SLOT] 최신 데이터 자리 표시 1", "[SLOT] 최신 데이터 자리 표시 2"],
-    "comparison_data": ["[SLOT] 과거 비교 데이터 1"],
-    "policy_variables": ["[SLOT] 정책 변수 1"],
-    "liquidity_variables": ["[SLOT] 유동성 변수 1"],
-    "sentiment_variables": ["[SLOT] 심리 변수 1"],
-    "global_variables": ["[SLOT] 글로벌 변수 1"]
-  },
-
-  "emotion_curve": {
-    "intro_tension": "도입 긴장 강도 (1~10 수치)",
-    "mid_refire_point": "중반 몰입 재점화 지점 설명",
-    "analysis_stability": "구조 분석 구간 안정도 (1~10 수치)",
-    "final_uncertainty": "마지막 변수 제시 구간 불확실성 강도 (1~10 수치)"
-  },
-
-  "algorithm_design": {
-    "first_30sec_hook": "초반 30초 후킹 전략",
-    "info_delay_method": "정보 지연 방식",
-    "mid_refire_method": "중반 재점화 방식",
-    "retention_defense": "시청 지속률 방어 장치"
-  },
-
-  "claude_guide": {
-    "tone": "강의형 화법 유지",
-    "question_points": ["질문 삽입 위치 1", "질문 삽입 위치 2"],
-    "data_timing": ["데이터 공개 타이밍 1", "데이터 공개 타이밍 2"],
-    "restrictions": ["절대 결론 선공개 금지", "공포 조장 금지", "투자 권유 금지", "특수기호 제한 준수"]
-  },
-
-  "differentiation": "기존 경제 영상 대비 이 기획의 차별화 포인트"
-}
-
-[주의]
-- 완성 대본을 작성하지 마십시오. 설계도만 작성하십시오.
-- 과장 표현 금지. 단정 표현 금지.
-- 숫자는 실제 값 대신 [SLOT] 형식으로 남기십시오.
-- 예시: "2025년 3분기 CPI 전년대비 상승률 [SLOT]%", "연준 기준금리 [SLOT]%"
-- five_parts 배열은 정확히 5개의 파트로 구성하세요.
-- 모든 내용은 한국어로 작성하세요.
-- JSON 데이터 외의 다른 텍스트는 포함하지 마세요.`;
-
-    const result = await callGemini(prompt, { useGoogleSearch: true });
-    return parseGeminiJson(result, null);
-}
-
-/**
- * v2.0 통합 관리 함수: 독립된 전문가들을 호출하여 결과 취합
- * type: 'all' | 'titles' | 'skeleton' | 'economy'
- * @param {object} dnaSummary - [NEW] 추가된 떡상 DNA 통계 객체
- */
-export async function generateFullScriptPlan(topicTitle, keywords, existingVideos = [], type = 'all', dnaSummary = null) {
-    const dnaStr = dnaSummary ? `\n[성공 패턴(DNA)]: ${JSON.stringify(dnaSummary, null, 2)}\n` : "";
-
-    const contextStr = existingVideos.length > 0
-        ? `기존 관련 영상들: \n${existingVideos.map(v => `- ${v.title}`).join('\n')} ${dnaStr}`
-        : `데이터베이스에 비슷한 기존 영상이 없습니다. ${dnaStr}`;
-
-    // 경제 모드: 전용 프롬프트 사용
-    if (type === 'economy') {
-        const [titles, economySkeleton] = await Promise.all([
-            generateHighCTRTitles(topicTitle, keywords, contextStr),
-            generateEconomySkeletonV2(topicTitle, keywords, contextStr)
-        ]);
-
-        if (!titles.length && !economySkeleton) return null;
-
-        return {
-            hooking_titles: titles,
-            seo_keywords: keywords.slice(0, 10),
-            differentiation: economySkeleton?.differentiation || "",
-            script_skeleton: economySkeleton || null,
-            isEconomyFormat: true
-        };
-    }
-
-    // 기본 모드 (야담 등)
-    const [titles, skeletonData] = await Promise.all([
-        (type === 'all' || type === 'titles') ? generateHighCTRTitles(topicTitle, keywords, contextStr) : Promise.resolve([]),
-        (type === 'all' || type === 'skeleton') ? generateYadamSkeletonV2(topicTitle, keywords, contextStr, dnaSummary) : Promise.resolve(null)
-    ]);
-
-    // Validation: Require at least what was asked for
-    if (type === 'titles' && !titles.length) return null;
-    if (type === 'skeleton' && !skeletonData) return null;
-    if (type === 'all' && !titles.length && !skeletonData) return null;
-    if (type === 'economy' && !titles.length && !skeletonData) return null;
-
-    return {
-        hooking_titles: titles,
-        seo_keywords: keywords.slice(0, 10),
-        differentiation: skeletonData?.differentiation || "",
-        script_skeleton: skeletonData?.script_skeleton || null
-    };
-}
-
-/**
  * v4: Edit script based on specific instructions
  */
 export async function editScript(content, instructions) {
@@ -1096,72 +911,6 @@ ${titlesStr}
     const result = await callGemini(prompt, { jsonMode: true });
     if (result && result.errorType) return result;
     return parseGeminiJson(result, { angle_analysis: '', suggestions: [] });
-}
-
-/**
- * [Economy v3] Stage 3: Generate detailed script skeleton
- */
-export async function generateEconomySkeletonV3(topicTitle, keyword, existingTitles = [], top3Titles = [], diffReason = '', targetAudience = '', conclusionType = '', primaryAsset = '', forbiddenKeywords = [], narrativeBlueprint = '') {
-    const currentDate = new Date().toLocaleDateString();
-
-    const prompt = `당신은 경제 지식 전달의 대가이자 유튜브 체류 시간 극대화 설계 전문가입니다.
-
-[분석 현재 시점]
-오늘 날짜: ${currentDate} (이 날짜를 기점으로 시점이 어긋나지 않도록 설계하십시오)
-
-[기획 기초 데이터]
-선택한 주제: ${topicTitle}
- 핵심 키워드: ${keyword}
-**[메시지 방화벽 - 결론 지침]: 이 대본은 반드시 [${conclusionType || '자율'}] 관점에서 결론을 내야 합니다.**
-**[메시지 방화벽 - 분석 대상]: 이 대본은 [${primaryAsset || '전체'}]를 집중 분석하십시오.**
-**[메시지 방화벽 - 화법 청사진]: 이 대본은 반드시 [${narrativeBlueprint || '일반'}] 화법으로만 전개하십시오.**
-**[메시지 방화벽 - 언급 금지]: [${(forbiddenKeywords || []).join(', ')}]와 관련된 내용은 5% 미만으로 제한하거나 아예 언급하지 마십시오.**
-**[기획 각도]: ${diffReason || '없음'}**
-**[타겟층]: ${targetAudience || '경제 시청자'}**
-기존 유사 영상들: ${existingTitles.slice(0, 5).join(', ')}
-최고 떡상 영상 3선: ${top3Titles.join(', ')}
-
-[미션]
-선택한 주제를 바탕으로 시청자가 끝까지 보고 '구독'까지 누르게 만드는 '고밀도 대본 뼈대'를 설계하십시오. 
-모든 내용은 **오늘의 실시간 상황(예: 서킷브레이커, 정책 발표 등)**과 공식 데이터에 기반하여, 
-시청자가 느끼는 현재의 위기감이나 기대감을 논리적으로 해소해 주어야 합니다.
-
-[작업 원칙 - 무관용 파편화 v4.1]
-1. **완결성 중독 해결 (배경 설명 0%)**: 시청자는 현재 상황(중동, 금리 등)을 이미 다 안다고 전제하십시오. 불필요한 시장 배경 설명을 1초라도 하면 실패입니다. 바로 할당된 **[화법 청사진]**의 입구로 직행하십시오.
-2. **패턴 박멸 (반전 구조 금지)**: **"대부분은~ 사실은~"** 구조 발견 시 즉시 경고입니다. 대신 "데이터가 말해주는 결론은 단 하나였습니다", "현장에서 제 눈으로 본 광경은 이랬습니다" 등 청사진 고유의 문장으로 시작하십시오.
-3. **소재의 배타적 고립**: **[언급 금지]** 키워드는 제목, 오프닝, 본론, 결론 전 영역에서 단 한 번도 쓰지 마십시오. 'HBM' 주제가 아니라면 '반도체'라는 단어조차 배제하고 다른 산업(부동산, 원유 등)의 성격에만 집중하십시오.
-4. **제목의 고유 개성**: "자산이 녹아내린다"와 같은 식상한 공포 유발 문구를 타 주제와 중복 사용하지 마십시오. 할당된 **시나리오의 핵심 팩트**를 제목에 박으십시오. (예: "3nm 수율 12.8%의 충격, 삼성 내부 보고서 단독 입수")
-5. **결론의 원자적 일치**: 할당된 **[결론 지침]**에만 충실하십시오. 중간 지점의 타협 없이 낙관이면 극강의 낙관, 매도면 극강의 공포 전략을 확실히 제시하십시오.
-
-[출력 필수 항목]
-1. 영상 제목 후보 10개: 팩트 기반의 고강도 후킹(공포/기회/예측)이 담긴 제목들
-2. 15초 오프닝 멘트: 오늘의 긴박한 경제 상황을 인용한 충격적 화두 제시
-3. 본론 전개 순서: 3~5단계로 구성, '팩트 분석 -> 원인 파악 -> 시청자 대응 전략' 구조
-4. Retention Point (반전/인사이트): 시장의 통념을 뒤집는 데이터 기반의 예리한 분석
-5. 클로징 멘트: 시청 소감 유도 및 행동 유도(Call to Action)
-6. 예상 영상 길이 및 참고 데이터: 분석 시 확인한 실제 수치나 통계 지표(CPI, 금리, 실적 등)
-
-[주의 형식 - JSON으로만 응답하세요]
-{
-  "titles": ["제목 1", "제목 2", ..., "제목 10"],
-  "opening": "15초 오프닝 멘트 내용 (데이터 인용)",
-  "body_steps": [
-    { "step": 1, "message": "단계 내용", "benefit": "시청자 이득" }
-  ],
-  "retention_insight": "팩트 기반 반전 포인트",
-  "closing": "클로징 멘트 내용",
-  "estimated_duration": "예상 영상 길이",
-  "key_data_to_check": ["확인할 공식 지표 1", "확인할 공식 지표 2"]
-}
-
-[작업 원칙]
-- 절대 과거의 사건을 현재인 것처럼 표현하지 마십시오. (팩트 체크 엄격 수행)
-- 모든 주장의 근거(정부 발표, 뉴스, 데이터 등)를 내용 속에 녹여내십시오.
-- JSON 외 다른 텍스트는 금지합니다.`;
-
-    const result = await callGemini(prompt, { jsonMode: true });
-    if (result && result.errorType) return result;
-    return parseGeminiJson(result, { titles: [], opening: '', body_steps: [], retention_insight: '', closing: '', estimated_duration: '', key_data_to_check: [] });
 }
 
 /**

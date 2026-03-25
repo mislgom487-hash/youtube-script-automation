@@ -9,6 +9,13 @@ let serverProcess = null;
 let serverPort = 3001;
 let isQuitting = false;
 let userDataPath = null;
+let logPath = null;
+
+function writeLog(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  try { if (logPath) fs.appendFileSync(logPath, line); } catch (e) {}
+  console.log(msg);
+}
 
 function isPortAvailable(port) {
   return new Promise((resolve) => {
@@ -46,39 +53,57 @@ async function startServer() {
       ...process.env,
       PORT: String(serverPort),
       ELECTRON_USER_DATA: userDataPath,
-      ELECTRON_MODE: 'true'
+      ELECTRON_MODE: 'true',
+      DIST_PATH: app.isPackaged
+        ? path.join(process.resourcesPath, 'dist')
+        : path.join(__dirname, '..', 'dist'),
+      RESOURCES_PATH: process.resourcesPath
     },
     stdio: ['pipe', 'pipe', 'pipe', 'ipc']
   });
 
   serverProcess.stdout.on('data', (data) => {
-    console.log('[Server]', data.toString());
+    writeLog('[Server] ' + data.toString().trim());
   });
 
   serverProcess.stderr.on('data', (data) => {
-    console.error('[Server Error]', data.toString());
+    writeLog('[Server Error] ' + data.toString().trim());
+  });
+
+  serverProcess.on('error', (err) => {
+    writeLog('[Server fork Error] ' + err.message);
   });
 
   return new Promise((resolve, reject) => {
+    let resolved = false;
+
     const timeout = setTimeout(() => {
-      reject(new Error('서버 시작 타임아웃 (30초)'));
+      if (!resolved) {
+        resolved = true;
+        reject(new Error('서버 시작 타임아웃 (30초)'));
+      }
     }, 30000);
 
     serverProcess.on('message', (msg) => {
       if (msg === 'ready') {
-        clearTimeout(timeout);
-        resolve();
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          writeLog('[Server] 준비 완료');
+          resolve();
+        }
       } else if (msg === 'restart-requested') {
-        console.log('[Server] 재시작 요청 수신 (복원 등)');
+        writeLog('[Server] 재시작 요청 수신 (복원 등)');
         restartServer();
       }
     });
 
-    serverProcess.on('exit', (code) => {
-      clearTimeout(timeout);
-      console.log('[Server] 프로세스 종료, 코드:', code);
-      if (!isQuitting && code !== 0) {
-        restartServer();
+    serverProcess.on('exit', (code, signal) => {
+      writeLog(`[Server] 프로세스 종료 — 코드: ${code}, 시그널: ${signal}`);
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        reject(new Error(`서버 프로세스가 시작 중 종료되었습니다 (코드: ${code})`));
       }
     });
   });
@@ -108,11 +133,12 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'YouTube Script Automation',
+    title: '미슬곰 유튜브 분석 프로그램',
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      devTools: false
     },
     show: false,
     backgroundColor: '#1a1a2e'
@@ -158,18 +184,38 @@ function createWindow() {
 app.whenReady().then(async () => {
   // app.ready 이후에만 getPath 호출 가능 (Electron 28+)
   userDataPath = app.getPath('userData');
+  logPath = path.join(userDataPath, 'error.log');
+  writeLog('=== 앱 시작 ===');
+  writeLog('userDataPath: ' + userDataPath);
+  writeLog('resourcesPath: ' + process.resourcesPath);
+
   const dataDir = path.join(userDataPath, 'data');
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
+  const userDbPath = path.join(dataDir, 'yadam.db');
+  if (!fs.existsSync(userDbPath)) {
+    // 설치된 리소스에서 DB 복사 (첫 실행 시에만)
+    const resourceDbPath = path.join(process.resourcesPath, 'data', 'yadam.db');
+    if (fs.existsSync(resourceDbPath)) {
+      fs.copyFileSync(resourceDbPath, userDbPath);
+    }
+  }
+
   try {
+    writeLog('서버 시작 중...');
+    writeLog('서버 스크립트: ' + (app.isPackaged
+      ? path.join(process.resourcesPath, 'server-bundle', 'index.js')
+      : 'dev mode'));
     await startServer();
+    writeLog('서버 시작 완료 — 창 생성');
     createWindow();
   } catch (error) {
+    writeLog('[FATAL] 서버 시작 실패: ' + error.message);
     dialog.showErrorBox(
       '서버 시작 실패',
-      '서버를 시작할 수 없습니다.\n' + error.message
+      `서버를 시작할 수 없습니다.\n\n${error.message}\n\n로그 파일: ${logPath}`
     );
     app.quit();
   }

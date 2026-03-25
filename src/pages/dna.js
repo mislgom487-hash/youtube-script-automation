@@ -64,8 +64,6 @@ export async function renderDna(container, { api }) {
     <!-- Step 5: 제목 10개 추천 -->
     <div id="dna-titles-section" class="hidden mb-24"></div>
 
-    <!-- Step 6: 대본 뼈대 -->
-    <div id="dna-skeleton-section" class="hidden mb-24"></div>
   `;
 
     // API 메서드 체크
@@ -497,7 +495,7 @@ export async function renderDna(container, { api }) {
 
             titlesSection.innerHTML = `
         <div class="card">
-          <h4 style="margin:0 0 16px 0;">🎯 썸네일 후킹 제목 추천 <span style="color:var(--text-muted); font-size:0.78rem; font-weight:400;">(클릭하여 선택 → 대본 뼈대 생성)</span></h4>
+          <h4 style="margin:0 0 16px 0;">🎯 썸네일 후킹 제목 추천</h4>
           <div style="display:flex; flex-direction:column; gap:10px;">
             ${titles.map((t, i) => `
               <div class="dna-title-card" data-idx="${i}"
@@ -519,77 +517,11 @@ export async function renderDna(container, { api }) {
             titlesSection.querySelectorAll('.dna-title-card').forEach(card => {
                 card.addEventListener('mouseenter', () => { card.style.background = 'rgba(120,80,255,0.1)'; card.style.borderColor = 'var(--accent)'; });
                 card.addEventListener('mouseleave', () => { card.style.background = 'rgba(255,255,255,0.03)'; card.style.borderColor = 'rgba(255,255,255,0.07)'; });
-                card.addEventListener('click', () => {
-                    const idx = parseInt(card.dataset.idx);
-                    const selected = titles[idx];
-                    generateSkeletonStep(dna, selected.title, category);
-                });
+                card.addEventListener('click', () => {});
             });
         } catch (err) {
             titlesSection.innerHTML = `<div class="card" style="border-color:var(--danger);">
         <p style="color:var(--danger);">제목 추천 실패: ${err.message}</p></div>`;
-        }
-    }
-
-    // ─── Step 5: 대본 뼈대 생성 ─────────────────
-    async function generateSkeletonStep(dna, selectedTitle, category) {
-        const skelSection = $('#dna-skeleton-section');
-        skelSection.classList.remove('hidden');
-        skelSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        showSpinner(skelSection, `"${selectedTitle}" 대본 뼈대 생성 중...`);
-
-        try {
-            const { skeleton } = await api.generateDnaSkeleton({ dna, selectedTitle, category });
-            if (!skeleton) throw new Error('뼈대가 생성되지 않았습니다.');
-
-            skelSection.innerHTML = `
-        <div class="card">
-          <div class="flex-between mb-20">
-            <h4 style="margin:0;">📝 대본 뼈대</h4>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <span style="font-size:0.72rem; color:var(--text-muted);">예상 분량: ${skeleton.total_duration_estimate || '—'}</span>
-              <button class="btn btn-secondary btn-xs" id="copy-skeleton-btn">📋 복사</button>
-            </div>
-          </div>
-          <div style="background:rgba(120,80,255,0.08); border:1px solid var(--accent); border-radius:12px; padding:14px 18px; margin-bottom:20px;">
-            <div style="font-size:0.72rem; color:var(--accent); margin-bottom:4px;">선택된 제목</div>
-            <div style="font-weight:800; font-size:1rem;">${skeleton.title}</div>
-          </div>
-          <div style="display:flex; flex-direction:column; gap:10px;" id="skeleton-sections">
-            ${(skeleton.sections || []).map(s => `
-              <div style="background:rgba(255,255,255,0.02); border-radius:12px; padding:14px 18px; border-left:4px solid ${s.special?.includes('★') ? '#ff851b' : s.special?.includes('🔔') ? '#ffdc00' : 'rgba(255,255,255,0.1)'};">
-                <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-                  <span style="font-weight:800; font-size:0.88rem;">${s.name}</span>
-                  <span style="font-size:0.65rem; color:var(--text-muted); background:rgba(255,255,255,0.05); border-radius:4px; padding:2px 6px;">${s.position}</span>
-                  ${s.special && s.special !== 'null' ? `<span style="font-size:0.72rem; font-weight:700; color:${s.special.includes('★') ? '#ff851b' : '#ffdc00'}">${s.special}</span>` : ''}
-                </div>
-                <div style="font-size:0.8rem; margin-bottom:6px;"><span style="color:var(--text-muted);">목표:</span> ${s.goal}</div>
-                <div style="font-size:0.8rem; margin-bottom:8px;"><span style="color:var(--text-muted);">핵심 질문:</span> ${s.key_question}</div>
-                <div style="background:rgba(120,80,255,0.08); border-radius:8px; padding:8px 12px; margin-bottom:6px; font-size:0.82rem; font-style:italic;">"${s.hook_sentence}"</div>
-                <div style="font-size:0.75rem; color:var(--text-muted);">→ 전환: ${s.transition}</div>
-              </div>
-            `).join('')}
-          </div>
-          <div style="margin-top:16px; background:rgba(46,204,64,0.1); border:1px solid #2ecc40; border-radius:10px; padding:12px 16px;">
-            <div style="font-size:0.72rem; color:#2ecc40; margin-bottom:4px;">마무리 (${skeleton.ending_type})</div>
-            <div style="font-size:0.88rem; font-weight:600;">"${skeleton.ending_sentence}"</div>
-          </div>
-        </div>
-      `;
-
-            // 복사 기능
-            skelSection.querySelector('#copy-skeleton-btn').addEventListener('click', () => {
-                const text = (skeleton.sections || []).map(s =>
-                    `[${s.name}] (${s.position})\n목표: ${s.goal}\n핵심질문: ${s.key_question}\n후킹: "${s.hook_sentence}"\n전환: ${s.transition}\n`
-                ).join('\n') + `\n[마무리] "${skeleton.ending_sentence}"`;
-                navigator.clipboard.writeText(text).then(() => showToast('대본 뼈대가 복사되었습니다!', 'success'));
-            });
-
-        } catch (err) {
-            skelSection.innerHTML = `<div class="card" style="border-color:var(--danger);">
-        <p style="color:var(--danger);">대본 뼈대 생성 실패: ${err.message}</p>
-        <button class="btn btn-secondary btn-xs mt-8" onclick="this.closest('.card').previousSibling?.querySelector('.dna-title-card')?.click()">🔁 재시도</button>
-      </div>`;
         }
     }
 

@@ -10,7 +10,7 @@ process.on('unhandledRejection', (reason, promise) => {
 import express from 'express';
 import cors from 'cors';
 import { spawn } from 'child_process';
-import { initDB, queryOne, getLastBackup } from './db.js';
+import { initDB, queryOne, getLastBackup, getDB } from './db.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -31,6 +31,7 @@ import dnaRouter from './routes/dna.js';
 import guidelinesRouter from './routes/guidelines.js';
 import topicsRouter from './routes/topics.js';
 import thumbReferencesRouter from './routes/thumb-references.js';
+import ttsRouter from './routes/tts.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -39,13 +40,39 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // 정적 파일 서빙 (프론트엔드)
-app.use(express.static(path.join(__sysdir, '..')));
+if (process.env.ELECTRON_MODE !== 'true') {
+    app.use(express.static(path.join(__sysdir, '..')));
+}
 if (process.env.ELECTRON_MODE === 'true') {
-    const distPath = path.join(__sysdir, '..', 'dist');
+    const distPath = process.env.DIST_PATH || path.join(__sysdir, '..', 'dist');
     if (fs.existsSync(distPath)) {
         app.use(express.static(distPath));
     }
 }
+
+// TTS 오디오 파일 서빙
+const ttsAudioDir = process.env.ELECTRON_USER_DATA
+    ? path.join(process.env.ELECTRON_USER_DATA, 'tts-audio')
+    : path.join(process.cwd(), 'data', 'tts-audio');
+if (!fs.existsSync(ttsAudioDir)) {
+    fs.mkdirSync(ttsAudioDir, { recursive: true });
+}
+app.use('/tts-audio', express.static(ttsAudioDir));
+
+// TTS 시드 오디오 파일 서빙
+const ttsSeedAudioDir = process.env.ELECTRON_USER_DATA
+    ? path.join(process.env.ELECTRON_USER_DATA, 'tts-seeds-audio')
+    : path.join(process.cwd(), 'data', 'tts-seeds-audio');
+if (!fs.existsSync(ttsSeedAudioDir)) {
+    fs.mkdirSync(ttsSeedAudioDir, { recursive: true });
+}
+app.use('/tts-seeds-audio', express.static(ttsSeedAudioDir));
+
+// 화자 샘플 오디오 파일 서빙 (앱 리소스에 포함된 정적 파일)
+const speakerSamplesDir = process.env.RESOURCES_PATH
+    ? path.join(process.env.RESOURCES_PATH, 'speaker-samples')
+    : path.join(process.cwd(), 'data', 'speaker-samples');
+app.use('/speaker-samples', express.static(speakerSamplesDir));
 
 // API routes
 app.use('/api/channels', channelsRouter);
@@ -58,6 +85,7 @@ app.use('/api/dna', dnaRouter);
 app.use('/api/guidelines', guidelinesRouter);
 app.use('/api/topics', topicsRouter);
 app.use('/api/thumb-references', thumbReferencesRouter);
+app.use('/api/tts', ttsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -112,7 +140,8 @@ async function start() {
         if (process.env.ELECTRON_MODE === 'true') {
             app.get('*', (req, res) => {
                 if (req.path.startsWith('/api')) return res.status(404).json({ error: 'Not Found' });
-                const distIndex = path.join(__sysdir, '..', 'dist', 'index.html');
+                const baseDist = process.env.DIST_PATH || path.join(__sysdir, '..', 'dist');
+            const distIndex = path.join(baseDist, 'index.html');
                 if (fs.existsSync(distIndex)) {
                     res.sendFile(distIndex);
                 } else {
@@ -134,3 +163,11 @@ async function start() {
 }
 
 start();
+
+function shutdown() {
+    try { getDB().close(); } catch (e) {}
+    process.exit(0);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT',  shutdown);

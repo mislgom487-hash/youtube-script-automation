@@ -107,7 +107,6 @@ export const api = {
     analyzeThemeDna: (topic, category) => request('/dna/theme-analyze', { method: 'POST', body: { topic, category } }),
     extractGoldenKeywords: (dna) => request('/dna/golden-keywords', { method: 'POST', body: { dna } }),
     recommendDnaTitles: (dna, goldenKeywords, category, topic) => request('/dna/recommend-titles', { method: 'POST', body: { dna, goldenKeywords, category, topic } }),
-    generateDnaSkeleton: (dna, selectedTitle, category) => request('/dna/skeleton', { method: 'POST', body: { dna, selectedTitle, category } }),
     getDnaCache: (key) => request(`/dna/cache/${key}`),
     buildGroupDna: (dnaResults) => request('/dna/group', { method: 'POST', body: { dnaResults } }),
     extractLocalDna: (data) => request('/dna/local-dna', { method: 'POST', body: data }),
@@ -288,4 +287,50 @@ export const api = {
     },
     addThumbReference: (title) => request('/thumb-references', { method: 'POST', body: { title } }),
     deleteThumbReference: (id) => request('/thumb-references/' + id, { method: 'DELETE' }),
+
+    // TTS
+    ttsConnectionTest: (url) => request(`/tts/connection-test?url=${encodeURIComponent(url)}`),
+    ttsGetAudioFiles: () => request('/tts/audio-files'),
+    ttsDeleteAudioFile: (filename) => request(`/tts/audio-files/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+    ttsSearchAudioFiles: (query) => request(`/tts/audio-files/search?q=${encodeURIComponent(query)}`),
+    ttsGenerateCustom: (data) => request('/tts/generate-custom', {
+        method: 'POST',
+        body: data
+    }),
+    ttsGenerateClone: (formData) => fetch('/api/tts/generate-clone', {
+        method: 'POST',
+        body: formData
+    }).then(r => r.json()),
+
+    ttsTranscribe: (formData) => fetch('/api/tts/transcribe', {
+        method: 'POST',
+        body: formData
+    }).then(r => r.json()),
+
+    ttsGenerateDesign: (data) => request('/tts/generate-design', {
+        method: 'POST',
+        body: data
+    }),
+
+    ttsGetGuideLink: () => request('/tts/guide-link'),
+    ttsUpdateGuideLink: (link, password) => request('/tts/guide-link', {
+        method: 'PUT',
+        body: { link, password }
+    }),
+    ttsAnalyzeSpeakers: (data) => request('/tts/analyze-speakers', {
+        method: 'POST',
+        body: data
+    }),
+    ttsGetSeeds: () => request('/tts/seeds'),
+    ttsSaveSeed: (data) => request('/tts/seeds', {
+        method: 'POST',
+        body: data
+    }),
+    ttsDeleteSeed: (id) => request(`/tts/seeds/${id}`, { method: 'DELETE' }),
+    ttsGetHistory: (q = '', page = 1) => request(`/tts/history?q=${encodeURIComponent(q)}&page=${page}`),
+    ttsDeleteHistory: (id) => request(`/tts/history/${id}`, { method: 'DELETE' }),
+    ttsDeleteHistoryBulk: (ids) => request('/tts/history-bulk', {
+        method: 'DELETE',
+        body: { ids }
+    }),
 };

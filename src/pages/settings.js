@@ -102,7 +102,7 @@ export async function renderSettings(container, { api }) {
         <div class="stg-key-actions">
           ${!isActive ? `<button class="stg-btn stg-btn-activate" data-id="${k.id}">사용</button>` : ''}
           <button class="stg-btn stg-btn-edit" data-id="${k.id}" data-key-type="${k.key_type}">수정</button>
-          ${!isActive ? `<button class="stg-btn stg-btn-delete" data-id="${k.id}">삭제</button>` : ''}
+          <button class="stg-btn stg-btn-delete" data-id="${k.id}">삭제</button>
         </div>
       </div>
     `;
@@ -338,13 +338,13 @@ export async function renderSettings(container, { api }) {
         <div class="stg-section">
           <div class="stg-section-header">
             <h3>데이터 복원</h3>
-            <p class="stg-section-desc">백업 파일을 업로드하여 데이터를 복원합니다</p>
+            <p class="stg-section-desc">백업 파일을 업로드하여 데이터를 복원합니다. API 키·개인 설정은 현재 PC 값이 유지됩니다.</p>
           </div>
           <div class="stg-restore-group">
             <div class="stg-restore-options">
               <label class="stg-radio-label">
                 <input type="radio" name="restore-mode" value="replace" checked>
-                <span>전체 교체 – 기존 데이터를 백업 데이터로 교체</span>
+                <span>전체 교체 – 채널/영상 데이터를 백업으로 교체 (API 키·설정 보존)</span>
               </label>
               <label class="stg-radio-label">
                 <input type="radio" name="restore-mode" value="merge">
@@ -353,7 +353,7 @@ export async function renderSettings(container, { api }) {
             </div>
             <div class="stg-upload-area" id="stg-upload-area">
               <p>백업 파일(.db)을 여기에 드래그하거나 클릭하여 선택</p>
-              <input type="file" id="stg-restore-file" accept=".db" hidden>
+              <input type="file" id="stg-restore-file" accept=".db,.zip" hidden>
             </div>
             <div class="stg-restore-status" id="stg-restore-status"></div>
           </div>
@@ -392,7 +392,10 @@ export async function renderSettings(container, { api }) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `yadam_backup_${new Date().toISOString().slice(0, 10)}.db`;
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        a.download = `yadam_backup_${ts}.zip`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -424,9 +427,14 @@ export async function renderSettings(container, { api }) {
     });
 
     async function handleRestore(file) {
-      if (!file.name.endsWith('.db')) {
-        statusEl.innerHTML = '<span class="stg-status-error">.db 파일만 업로드 가능합니다</span>';
+      const isZip = file.name.endsWith('.zip');
+      if (!file.name.endsWith('.db') && !isZip) {
+        statusEl.innerHTML = '<span class="stg-status-error">.db 또는 .zip 파일만 업로드 가능합니다</span>';
         return;
+      }
+      if (isZip) {
+        statusEl.innerHTML = '<span class="stg-status-loading">DB + TTS 오디오 파일을 함께 복원합니다</span>';
+        await new Promise(r => setTimeout(r, 800));
       }
       const mode = content.querySelector('input[name="restore-mode"]:checked').value;
       if (!confirm(mode === 'replace'

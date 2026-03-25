@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { queryAll, queryOne, runSQLNoSave, saveDB, getMaterialGroupName } from '../db.js';
 import { pickSpikeVideos } from '../services/spike-selector.js';
-import { extractAdvancedDNA, extractGoldenKeywords, recommendTitles, generateDnaSkeleton, buildGroupDNA } from '../services/advanced-dna-extractor.js';
+import { extractAdvancedDNA, extractGoldenKeywords, recommendTitles, buildGroupDNA } from '../services/advanced-dna-extractor.js';
 import { callGemini } from '../services/gemini-service.js';
 
 const router = Router();
@@ -146,37 +146,6 @@ router.post('/recommend-titles', async (req, res) => {
         const titles = await recommendTitles(dna, goldenKeywords, category, topic);
         setCache('recommended_titles', titles);
         res.json({ titles });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ─────────────────────────────────────────────
-// POST /api/dna/skeleton
-// body: { dna, selectedTitle, category }
-// 선택 제목 + DNA → 대본 뼈대
-// ─────────────────────────────────────────────
-router.post('/skeleton', async (req, res) => {
-    try {
-        const { dna, selectedTitle, category = '야담' } = req.body;
-        if (!dna || !selectedTitle)
-            return res.status(400).json({ error: 'dna와 selectedTitle이 필요합니다.' });
-
-        const skeleton = await generateDnaSkeleton(dna, selectedTitle, category);
-        if (!skeleton) return res.status(502).json({ error: '뼈대 생성 실패 (AI 응답 없음)' });
-
-        const dna_evidence = {
-            analyzed_video_count: dna._meta?.videoCount ?? '정보 없음',
-            hook_type: dna.hook_dna?.hook_type || '정보 없음',
-            hook_examples: (dna.hook_dna?.hook_sentences || []).slice(0, 3),
-            struct_type: dna.structure_dna?.structure_type || '정보 없음',
-            payoff_type: dna.structure_dna?.payoff_type || '정보 없음',
-            emotion_peaks: (dna.emotion_dna?.peak_points || []).join(' / ') || '정보 없음',
-            style_type: dna.title_dna?.title_pattern || '정보 없음',
-        };
-
-        setCache('last_skeleton', skeleton);
-        res.json({ skeleton, dna_evidence });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

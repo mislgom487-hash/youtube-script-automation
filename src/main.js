@@ -5,6 +5,7 @@ import { showToast } from './components/toast.js';
 import { renderSearch } from './pages/search.js';
 import { renderChannels } from './pages/channels.js';
 import { renderGaps } from './pages/gaps.js';
+import { renderTts } from './pages/tts.js';
 import { renderIdeas } from './pages/ideas.js';
 import { renderSettings } from './pages/settings.js';
 import { triggerPageShow } from './page-events.js';
@@ -13,6 +14,7 @@ const routes = {
     '/search': renderSearch,
     '/channels': renderChannels,
     '/gaps': renderGaps,
+    '/tts': renderTts,
     '/ideas': renderIdeas,
     '/settings': renderSettings
 };
