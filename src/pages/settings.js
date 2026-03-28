@@ -507,7 +507,8 @@ export async function renderSettings(container, { api }) {
           <div class="gl-type-tabs">
             <button class="gl-type-tab active" data-type="topic_prompt">주제 추천 지침</button>
             <button class="gl-type-tab" data-type="thumbnail_prompt">썸네일 제목 추천 지침</button>
-            <button class="gl-type-tab" data-type="story_design_prompt">스토리 설계 지침</button>
+            <button class="gl-type-tab" data-type="dna_analysis_guide">DNA 분석 지침</button>
+            <button class="gl-type-tab" data-type="writing_prompt_guide">글쓰기 프롬프트 얻기 지침</button>
           </div>
           <div class="gl-list-area"></div>
           <div class="gl-actions">
@@ -840,7 +841,7 @@ export async function renderSettings(container, { api }) {
             </div>
             <div class="gl-editor-field">
               <label>유형</label>
-              <span class="gl-editor-type">${isEdit ? ({'topic_prompt':'주제 추천 지침','thumbnail_prompt':'썸네일 제목 추천 지침','story_design_prompt':'스토리 설계 지침'}[existing.type] || existing.type) : ({'topic_prompt':'주제 추천 지침','thumbnail_prompt':'썸네일 제목 추천 지침','story_design_prompt':'스토리 설계 지침'}[currentType] || currentType)}</span>
+              <span class="gl-editor-type">${isEdit ? ({'topic_prompt':'주제 추천 지침','thumbnail_prompt':'썸네일 제목 추천 지침','dna_analysis_guide':'DNA 분석 지침','writing_prompt_guide':'글쓰기 프롬프트 얻기 지침'}[existing.type] || existing.type) : ({'topic_prompt':'주제 추천 지침','thumbnail_prompt':'썸네일 제목 추천 지침','dna_analysis_guide':'DNA 분석 지침','writing_prompt_guide':'글쓰기 프롬프트 얻기 지침'}[currentType] || currentType)}</span>
             </div>
             <div class="gl-editor-field">
               <label>제목</label>
@@ -848,7 +849,6 @@ export async function renderSettings(container, { api }) {
             </div>
             <div class="gl-editor-field gl-editor-field-full">
               <label>내용</label>
-              ${(isEdit ? existing.type : currentType) === 'story_design_prompt' ? `<p class="gl-editor-hint">지침 본문에 <strong>[주제 데이터]</strong>와 <strong>[DNA 설계 가이드]</strong> 텍스트를 반드시 포함해야 합니다. 이 위치에 자동으로 데이터가 삽입됩니다.</p>` : ''}
               ${isThumbType ? `
               <div class="thumb-ref-btn-row">
                 <span class="thumb-ref-label-sub">하단의 {{THUMB_TITLE_REFERENCES}}에 자동 삽입됩니다</span>

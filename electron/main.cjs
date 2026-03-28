@@ -138,7 +138,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      devTools: false
+      devTools: true
     },
     show: false,
     backgroundColor: '#1a1a2e'

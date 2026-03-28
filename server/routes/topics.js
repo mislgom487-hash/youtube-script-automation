@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { queryAll, queryOne, runSQL } from '../db.js';
 import { callGemini } from '../services/gemini-service.js';
+import { fetchTranscript } from '../services/transcript-fetcher.js';
 
 const router = Router();
 
@@ -42,6 +43,26 @@ try {
   console.error('[DB] 5단계 컬럼 추가 실패:', e.message);
 }
 
+// 신규 컬럼 마이그레이션 (5~8단계)
+try {
+  const tblInfo2 = queryAll('PRAGMA table_info(topic_recommendations)', []);
+  const colNames2 = tblInfo2.map(c => c.name);
+  const newCols = [
+    { name: 'material_data', type: "TEXT DEFAULT ''" },
+    { name: 'dna_analysis_result', type: "TEXT DEFAULT ''" },
+    { name: 'writing_prompt_result', type: "TEXT DEFAULT ''" },
+    { name: 'final_script', type: "TEXT DEFAULT ''" }
+  ];
+  for (const col of newCols) {
+    if (!colNames2.includes(col.name)) {
+      runSQL(`ALTER TABLE topic_recommendations ADD COLUMN ${col.name} ${col.type}`);
+      console.log(`[DB] topic_recommendations에 ${col.name} 컬럼 추가`);
+    }
+  }
+} catch(e) {
+  console.error('[DB] 신규 컬럼 추가 실패:', e.message);
+}
+
 try {
   const nullRows = queryAll("SELECT COUNT(*) as cnt FROM topic_recommendations WHERE group_tag IS NULL", []);
   if (nullRows[0].cnt > 0) {
@@ -58,7 +79,10 @@ try {
   console.error('[DB] group_tag 역매핑 실패:', e.message);
 }
 
-
+// 스토리 설계 지침 데이터 정리
+try {
+  runSQL("DELETE FROM story_guidelines WHERE type = 'story_design_prompt'");
+} catch(e) { /* story_guidelines 테이블 없으면 무시 */ }
 
 // ============================
 // POST /api/topics/save-recommendation — 주제 추천 최종 저장
@@ -66,15 +90,12 @@ try {
 router.post('/save-recommendation', (req, res) => {
   try {
     const { topic_title, topic_summary, thumb_titles, group_tag,
-            thumb_title_main, selected_dna_id, story_prompt, story_guideline_id } = req.body;
+            thumb_title_main, selected_dna_id, story_prompt, story_guideline_id,
+            material_data, dna_analysis_result, writing_prompt_result, final_script } = req.body;
 
     if (!topic_title || !topic_title.trim()) {
       return res.status(400).json({ error: 'topic_title은 필수입니다.' });
     }
-    if (!topic_summary || !topic_summary.trim()) {
-      return res.status(400).json({ error: 'topic_summary는 필수입니다.' });
-    }
-
     const thumbJson = JSON.stringify(
       Array.isArray(thumb_titles) ? thumb_titles : [thumb_titles || '']
     );
@@ -82,15 +103,189 @@ router.post('/save-recommendation', (req, res) => {
     const result = runSQL(
       `INSERT INTO topic_recommendations
          (category, group_tag, topic_title, topic_summary, thumb_titles,
-          thumb_title_main, selected_dna_id, story_prompt, story_guideline_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
-      [group_tag || '', group_tag || '', topic_title.trim(), topic_summary.trim(), thumbJson,
-       thumb_title_main || '', selected_dna_id || null, story_prompt || '', story_guideline_id || null]
+          thumb_title_main, selected_dna_id, story_prompt, story_guideline_id,
+          material_data, dna_analysis_result, writing_prompt_result, final_script,
+          created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
+      [group_tag || '', group_tag || '', topic_title.trim(), (topic_summary || '').trim(), thumbJson,
+       thumb_title_main || '', selected_dna_id || null, story_prompt || '', story_guideline_id || null,
+       material_data || '', dna_analysis_result || '', writing_prompt_result || '', final_script || '']
     );
 
     res.json({ success: true, id: result.lastId });
   } catch (e) {
     console.error('[save-recommendation 오류]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================
+// POST /api/topics/recommend-materials — TOP50 소재 추천
+// ============================
+router.post('/recommend-materials', async (req, res) => {
+  try {
+    const { limit = 50, genre, exclude_ids = [] } = req.body;
+
+    const REL = ["시어머니", "남편", "아내", "아들", "딸", "친구", "상사", "동료", "가족", "어머니", "아버지"];
+    const EVT = ["병원", "보험금", "유산", "간병", "상속", "장례", "이혼", "불륜", "배신", "사기", "폭력", "실종", "빚", "해고", "퇴사"];
+    const EMO = ["분노", "충격", "눈물", "감동", "공포", "억울", "복수", "후회", "감사"];
+    const TWIST = ["녹음", "CCTV", "문자", "증거", "유서", "비밀", "정체", "거짓말", "반전", "폭로"];
+    const DICTS = [
+      { key: 'REL', label: '관계', words: REL },
+      { key: 'EVT', label: '사건', words: EVT },
+      { key: 'EMO', label: '감정', words: EMO },
+      { key: 'TWIST', label: '반전', words: TWIST }
+    ];
+
+    // 1) video_spike_rankings + videos JOIN으로 필요 필드 전체 조회
+    const spikeRows = queryAll(`
+      SELECT vsr.video_id, vsr.video_id_youtube, vsr.video_title, vsr.spike_ratio,
+             vsr.view_count, vsr.channel_name, vsr.thumbnail_url,
+             vsr.duration_seconds, vsr.published_at, vsr.subscriber_count,
+             v.transcript_raw, v.has_transcript
+      FROM video_spike_rankings vsr
+      LEFT JOIN videos v ON v.id = vsr.video_id
+      WHERE vsr.is_spike = 1 AND (? = '' OR vsr.genre = ?)
+      ORDER BY vsr.spike_ratio DESC
+      LIMIT 50
+    `, [genre || '', genre || '']);
+
+    if (spikeRows.length === 0) {
+      return res.status(400).json({ error: '떡상 영상 데이터가 없습니다. 소재 분류를 먼저 진행해주세요.' });
+    }
+
+    // 3) 소재 분류 — 각 영상에 카테고리 태그
+    function classifyTitle(title) {
+      const t = (title || '').toLowerCase();
+      for (const d of DICTS) {
+        if (d.words.some(w => t.includes(w.toLowerCase()))) return d;
+      }
+      return { key: 'OTHER', label: '기타', words: [] };
+    }
+
+    // 5) 소재별 그룹핑 후 서로 다른 카테고리에서 1개씩 3개 선택
+    const catGroups = {};
+    const seenTitles = new Set();
+    for (const spike of spikeRows) {
+      const normalized = (spike.video_title || '')
+        .replace(/[|\[\]｜\s·\-]/g, '')
+        .substring(0, 30);
+      if (seenTitles.has(normalized)) continue;
+      seenTitles.add(normalized);
+
+      const cat = classifyTitle(spike.video_title);
+      const item = {
+        ...spike,
+        category: cat.key,
+        category_label: cat.label,
+        has_transcript: !!(spike.transcript_raw && spike.transcript_raw.trim()),
+        transcript_raw: spike.transcript_raw || null
+      };
+      if (!catGroups[cat.key]) catGroups[cat.key] = [];
+      catGroups[cat.key].push(item);
+    }
+
+    const selected = [];
+    const usedCats = new Set();
+
+    // 먼저 서로 다른 카테고리에서 선택 (exclude_ids 제외, 랜덤 선택)
+    for (const catKey of Object.keys(catGroups)) {
+      if (selected.length >= 3) break;
+      if (!usedCats.has(catKey)) {
+        const candidates = catGroups[catKey].filter(function(item) {
+          return !exclude_ids.includes(item.video_id)
+              && !exclude_ids.includes(item.video_id_youtube);
+        });
+        if (candidates.length === 0) continue;
+        const randomIdx = Math.floor(Math.random() * candidates.length);
+        selected.push(candidates[randomIdx]);
+        usedCats.add(catKey);
+      }
+    }
+
+    // 부족하면 exclude_ids 제외한 나머지에서 랜덤으로 채움
+    if (selected.length < 3) {
+      const allRemaining = Object.values(catGroups)
+        .flat()
+        .filter(function(item) {
+          return !selected.some(function(s) { return s.video_id === item.video_id; })
+              && !exclude_ids.includes(item.video_id)
+              && !exclude_ids.includes(item.video_id_youtube);
+        });
+      while (selected.length < 3 && allRemaining.length > 0) {
+        const randomIdx = Math.floor(Math.random() * allRemaining.length);
+        selected.push(allRemaining.splice(randomIdx, 1)[0]);
+      }
+    }
+
+    // 자막 수집 (DB에 없는 경우만 fetch)
+    for (const item of selected) {
+      if (item.transcript_raw && item.transcript_raw.length > 0) {
+        item.has_transcript = true;
+        continue;
+      }
+      try {
+        const transcript = await fetchTranscript(item.video_id_youtube);
+        if (transcript && transcript.length > 0) {
+          const trimmed = transcript.substring(0, 100000);
+          runSQL(
+            'UPDATE videos SET transcript_raw = ? WHERE id = ?',
+            [trimmed, item.video_id]
+          );
+          item.transcript_raw = trimmed;
+          item.has_transcript = true;
+        } else {
+          item.transcript_raw = null;
+          item.has_transcript = false;
+        }
+      } catch(e) {
+        console.error(
+          '[recommend-materials] 자막 수집 실패:',
+          item.video_id_youtube, e.message
+        );
+        item.transcript_raw = null;
+        item.has_transcript = false;
+      }
+    }
+
+    // daily_avg_views 계산
+    for (const item of selected) {
+      const days = Math.max(1, Math.floor(
+        (Date.now() - new Date(item.published_at).getTime()) / 86400000
+      ));
+      item.daily_avg_views = Math.round((item.view_count || 0) / days);
+    }
+
+    if (selected.length === 0) {
+      return res.json({
+        success: true,
+        materials: [],
+        message: '추천 가능한 소재가 없습니다. 재추천 시 새로운 소재가 제공됩니다.'
+      });
+    }
+
+    const materials = selected.slice(0, 3).map((item, idx) => ({
+      rank: idx + 1,
+      video_id: item.video_id,
+      video_id_youtube: item.video_id_youtube,
+      title: item.video_title,
+      category: item.category,
+      category_label: item.category_label,
+      spike_ratio: item.spike_ratio,
+      view_count: item.view_count,
+      channel_name: item.channel_name,
+      thumbnail_url: item.thumbnail_url || null,
+      subscriber_count: item.subscriber_count || 0,
+      duration_seconds: item.duration_seconds || null,
+      published_at: item.published_at || null,
+      daily_avg_views: item.daily_avg_views,
+      has_transcript: item.has_transcript,
+      transcript_raw: item.transcript_raw
+    }));
+
+    res.json({ success: true, materials });
+  } catch (e) {
+    console.error('[recommend-materials 오류]', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -159,6 +354,7 @@ router.get('/recommendations-history', (req, res) => {
     let sql = `
       SELECT tr.id, tr.group_tag, tr.topic_title, tr.topic_summary, tr.thumb_titles,
              tr.thumb_title_main, tr.selected_dna_id, tr.story_prompt, tr.story_guideline_id,
+             tr.material_data, tr.dna_analysis_result, tr.writing_prompt_result, tr.final_script,
              tr.created_at, vd.video_titles as dna_video_titles
       FROM topic_recommendations tr
       LEFT JOIN video_dna vd ON tr.selected_dna_id = vd.id

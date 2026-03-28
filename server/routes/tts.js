@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 // writeFile은 스트림 방식 전환 후 미사용 (generate-short 등 향후 사용 대비 보존)
 // import { writeFile } from 'fs/promises';
 import multer from 'multer';
@@ -97,6 +98,26 @@ function parseStatus(statusText) {
   const seedMatch = statusText.match(/Seed:\s*(\d+)/);
   if (seedMatch) result.seed = parseInt(seedMatch[1], 10);
   return result;
+}
+
+// === Resume 세션 관리 ===
+function computeResumeHash({ text, mode, speaker, voiceDescription, language }) {
+  const data = JSON.stringify({
+    text: text.trim(), mode,
+    speaker: speaker || '', voiceDescription: voiceDescription || '', language
+  });
+  return crypto.createHash('sha256').update(data).digest('hex').substring(0, 16);
+}
+
+function loadResumeSession(tempDir, expectedHash, expectedTotal) {
+  const metaPath = path.join(tempDir, 'metadata.json');
+  if (!fs.existsSync(tempDir) || !fs.existsSync(metaPath)) return null;
+  try {
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    if (meta.hash !== expectedHash || meta.totalSegments !== expectedTotal) return null;
+    const count = fs.readdirSync(tempDir).filter(f => /^part\d+\.wav$/.test(f)).length;
+    return { meta, completedCount: count };
+  } catch (e) { return null; }
 }
 
 // === 타임스탬프 파일명 생성 ===
@@ -978,7 +999,8 @@ router.post('/generate-long', async (req, res) => {
     serverUrl = 'http://127.0.0.1:7860',
     multiSpeaker = false,
     segments = [],
-    speakerMap = {}
+    speakerMap = {},
+    forceNew = false
   } = req.body;
 
   if (!text || text.trim().length === 0) {
@@ -1000,18 +1022,24 @@ router.post('/generate-long', async (req, res) => {
   }
 
   let tempPcmPath = null;
+  let tempSegDir = null;
+  let completedSegments = 0;
   try {
     let processSegments;
 
     if (multiSpeaker && segments.length > 0) {
-      processSegments = segments.map(seg => ({
-        text: seg.text,
-        speaker: speakerMap[seg.speaker] || speaker,
-        originalSpeaker: seg.speaker,
-        instruct: seg.instruct || ''
-      }));
+      // 다중화자: 세그먼트별로도 200자 초과 시 재분할 (OOM 방지)
+      processSegments = segments.flatMap(seg => {
+        const subChunks = splitText(seg.text, 200);
+        return subChunks.map(chunk => ({
+          text: chunk,
+          speaker: speakerMap[seg.speaker] || speaker,
+          originalSpeaker: seg.speaker,
+          instruct: seg.instruct || ''
+        }));
+      });
     } else {
-      const chunks = splitText(text.trim(), 400);
+      const chunks = splitText(text.trim(), 200);
       processSegments = chunks.map(chunk => ({
         text: chunk,
         speaker: speaker,
@@ -1020,15 +1048,40 @@ router.post('/generate-long', async (req, res) => {
     }
 
     const totalChunks = processSegments.length;
-    sendEvent({ type: 'start', totalChunks, message: `${totalChunks}개 파트로 분할 완료` });
 
-    // 스트림 기반 점진적 디스크 쓰기 준비
+    // === 오디오 포맷 상수 ===
     const sampleRate = 24000;
     const channels = 1;
     const bitsPerSample = 16;
     const silenceDurationSec = parseFloat(silenceDuration) || 0;
     const silenceBytesPerSec = sampleRate * channels * (bitsPerSample / 8);
     const silenceByteCount = Math.round(silenceDurationSec * silenceBytesPerSec);
+
+    // === Resume 세션 확인 ===
+    const resumeHash = computeResumeHash({ text, mode, speaker, voiceDescription, language });
+    tempSegDir = path.join(getAudioDir(), `resume_${resumeHash}`);
+
+    if (forceNew && fs.existsSync(tempSegDir)) {
+      fs.rmSync(tempSegDir, { recursive: true, force: true });
+    }
+
+    const existingSession = loadResumeSession(tempSegDir, resumeHash, totalChunks);
+    let resumeFrom = 0;
+    if (existingSession) {
+      resumeFrom = Math.min(existingSession.completedCount, totalChunks);
+      completedSegments = resumeFrom;
+    }
+
+    fs.mkdirSync(tempSegDir, { recursive: true });
+
+    if (!existingSession) {
+      fs.writeFileSync(path.join(tempSegDir, 'metadata.json'), JSON.stringify({
+        hash: resumeHash, totalSegments: totalChunks, splitSize: 200,
+        mode, speaker: speaker || '', voiceDescription: voiceDescription || '',
+        language, seed: parseInt(seed, 10), silenceDuration: parseFloat(silenceDuration) || 0,
+        instruct: instruct || '', modelSize, createdAt: new Date().toISOString()
+      }, null, 2));
+    }
 
     const filename = generateFilename(mode === 'design' ? 'design_long' : 'custom_long');
     const finalPath = path.join(getAudioDir(), filename);
@@ -1038,8 +1091,37 @@ router.post('/generate-long', async (req, res) => {
     let lastSeed = parseInt(seed, 10);
     let totalDuration = 0;
 
-    for (let i = 0; i < totalChunks; i++) {
+    // === 이어서 생성: 완료된 세그먼트 PCM 스트림 재기록 ===
+    if (resumeFrom > 0) {
+      sendEvent({
+        type: 'resume', resumeFrom, totalChunks,
+        percent: Math.round((resumeFrom / totalChunks) * 90),
+        message: `${resumeFrom}개 세그먼트가 이미 완료되어 있습니다. ${resumeFrom + 1}번부터 이어서 생성합니다.`
+      });
+      sendEvent({ type: 'progress', current: resumeFrom, totalChunks, percent: 0, message: `이전 ${resumeFrom}개 세그먼트 불러오는 중...` });
+
+      for (let ri = 0; ri < resumeFrom; ri++) {
+        const partPath = path.join(tempSegDir, `part${String(ri + 1).padStart(3, '0')}.wav`);
+        if (!fs.existsSync(partPath)) { resumeFrom = ri; completedSegments = ri; break; }
+        const wavBuf = fs.readFileSync(partPath);
+        const pcm = extractPcmData(wavBuf);
+        pcmStream.write(pcm);
+        totalPcmBytes += pcm.length;
+        if (ri < totalChunks - 1 && silenceByteCount > 0) {
+          pcmStream.write(Buffer.alloc(silenceByteCount, 0));
+          totalPcmBytes += silenceByteCount;
+        }
+        totalDuration += pcm.length / (sampleRate * channels * (bitsPerSample / 8));
+      }
+    }
+
+    sendEvent({ type: 'start', totalChunks, resumeFrom, message: resumeFrom > 0
+      ? `${resumeFrom}/${totalChunks} 이어서 생성 시작`
+      : `${totalChunks}개 파트로 분할 완료` });
+
+    for (let i = resumeFrom; i < totalChunks; i++) {
       const seg = processSegments[i];
+      console.log(`[TTS] segment ${i + 1}/${totalChunks}: ${seg.text.length}자 [${seg.originalSpeaker || '단일화자'}]`);
       const speakerLabel = seg.originalSpeaker ? ` [${seg.originalSpeaker}]` : '';
 
       sendEvent({
@@ -1090,7 +1172,7 @@ router.post('/generate-long', async (req, res) => {
       if (!audioInfo || !audioInfo.path) {
         pcmStream.destroy();
         fs.unlink(tempPcmPath, () => {});
-        sendEvent({ type: 'error', message: `파트 ${i + 1} 생성 실패` });
+        sendEvent({ type: 'error', message: `파트 ${i + 1} 생성 실패`, completedSegments, tempSegDir, savedMessage: completedSegments > 0 ? `${completedSegments}개 세그먼트가 저장되어 있습니다 (${tempSegDir})` : null });
         res.end();
         return;
       }
@@ -1099,12 +1181,18 @@ router.post('/generate-long', async (req, res) => {
       if (!audioResponse.ok) {
         pcmStream.destroy();
         fs.unlink(tempPcmPath, () => {});
-        sendEvent({ type: 'error', message: `파트 ${i + 1} 다운로드 실패` });
+        sendEvent({ type: 'error', message: `파트 ${i + 1} 다운로드 실패`, completedSegments, tempSegDir, savedMessage: completedSegments > 0 ? `${completedSegments}개 세그먼트가 저장되어 있습니다 (${tempSegDir})` : null });
         res.end();
         return;
       }
 
       const wavBuffer = Buffer.from(await audioResponse.arrayBuffer());
+
+      // 세그먼트별 개별 WAV 저장 (중간 저장 — 오류 시 복구용)
+      const partFile = path.join(tempSegDir, `part${String(i + 1).padStart(3, '0')}.wav`);
+      fs.writeFileSync(partFile, wavBuffer);
+      completedSegments++;
+
       const pcm = extractPcmData(wavBuffer);
       pcmStream.write(pcm);
       totalPcmBytes += pcm.length;
@@ -1159,6 +1247,9 @@ router.post('/generate-long', async (req, res) => {
     });
 
     fs.unlink(tempPcmPath, () => {});
+    // 정상 완료 — 개별 세그먼트 temp 폴더 삭제
+    try { fs.rmSync(tempSegDir, { recursive: true, force: true }); } catch (e2) {}
+    tempSegDir = null;
 
     sendEvent({ type: 'progress', current: totalChunks, totalChunks, percent: 96, message: '파일 저장 완료' });
 
@@ -1202,7 +1293,11 @@ router.post('/generate-long', async (req, res) => {
   } catch (e) {
     if (tempPcmPath) { try { fs.unlinkSync(tempPcmPath); } catch (e2) {} }
     console.error('TTS generate-long error:', e.message);
-    sendEvent({ type: 'error', message: e.message });
+    // tempSegDir은 삭제하지 않음 — 완료된 세그먼트 보존
+    const savedMessage = (tempSegDir && completedSegments > 0)
+      ? `${completedSegments}개 세그먼트가 저장되어 있습니다 (${tempSegDir})`
+      : null;
+    sendEvent({ type: 'error', message: e.message, completedSegments, tempSegDir, savedMessage });
   }
 
   res.end();

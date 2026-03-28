@@ -277,6 +277,7 @@ export const api = {
         const qs = params.toString();
         return request('/guidelines' + (qs ? '?' + qs : ''));
     },
+    recommendMaterials: (data) => request('/topics/recommend-materials', { method: 'POST', body: data }),
     recommendDna: (data) => request('/topics/recommend-dna', { method: 'POST', body: data }),
     generateStoryPrompt: (data) => request('/topics/generate-story-prompt', { method: 'POST', body: data }),
 

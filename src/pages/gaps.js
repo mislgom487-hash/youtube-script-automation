@@ -4967,7 +4967,60 @@ const ucBtnMain = document.querySelector('#unclassified-btn');
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 주제 추천 4단계 모달
+// 주제 추천 플로우 공통 유틸
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function downloadTxt(filename, text) {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+function safeCopy(text, btn) {
+  function onSuccess() {
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = '복사 완료!';
+      setTimeout(function() { btn.textContent = orig; }, 2000);
+    }
+  }
+  if (navigator.clipboard && document.hasFocus()) {
+    navigator.clipboard.writeText(text).then(onSuccess);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    onSuccess();
+  }
+}
+
+function showTtsConfirm(message, onConfirm) {
+  const dlg = document.createElement('div');
+  dlg.style.cssText = 'position:fixed;inset:0;z-index:100001;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);';
+  dlg.innerHTML =
+    '<div style="background:#1e1e2e;border:1px solid rgba(124,92,255,0.35);border-radius:14px;padding:28px 32px;max-width:360px;width:90%;text-align:center;">' +
+      '<p style="color:#fff;font-size:15px;line-height:1.7;margin:0 0 24px;">' + message + '</p>' +
+      '<div style="display:flex;gap:10px;justify-content:center;">' +
+        '<button id="tts-dlg-cancel" style="padding:10px 24px;border-radius:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);font-size:14px;cursor:pointer;">취소</button>' +
+        '<button id="tts-dlg-ok" style="padding:10px 24px;border-radius:8px;background:rgba(239,68,68,0.2);border:1px solid rgba(239,68,68,0.4);color:#ef4444;font-size:14px;font-weight:600;cursor:pointer;">삭제</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(dlg);
+  dlg.querySelector('#tts-dlg-ok').addEventListener('click', function() { dlg.remove(); onConfirm(); });
+  dlg.querySelector('#tts-dlg-cancel').addEventListener('click', function() { dlg.remove(); });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 주제 추천 8단계 모달
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ── localStorage 헬퍼 (flat tr_ 키, 보완 1) ──
 function trGet(key) {
@@ -5011,11 +5064,14 @@ async function openTopicRecommendModal(api, groupTag) {
       <div class="trm-header">
         <div class="trm-header-steps">
           <div class="chv-container">
-            <div class="chv-item active" id="trm-chv-1"><span class="chv-num">01</span> 지침 + TOP200</div>
-            <div class="chv-item" id="trm-chv-2"><span class="chv-num">02</span> 주제 입력</div>
-            <div class="chv-item" id="trm-chv-3"><span class="chv-num">03</span> 썸네일 지침</div>
-            <div class="chv-item" id="trm-chv-4"><span class="chv-num">04</span> 썸네일 입력</div>
-            <div class="chv-item" id="trm-chv-5"><span class="chv-num">05</span> DNA 프롬프트</div>
+            <div class="chv-item active" id="trm-chv-1"><span class="chv-num">01</span> 지침</div>
+            <div class="chv-item" id="trm-chv-2"><span class="chv-num">02</span> 주제</div>
+            <div class="chv-item" id="trm-chv-3"><span class="chv-num">03</span> 썸지침</div>
+            <div class="chv-item" id="trm-chv-4"><span class="chv-num">04</span> 썸입력</div>
+            <div class="chv-item" id="trm-chv-5"><span class="chv-num">05</span> 소재</div>
+            <div class="chv-item" id="trm-chv-6"><span class="chv-num">06</span> DNA</div>
+            <div class="chv-item" id="trm-chv-7"><span class="chv-num">07</span> 글쓰기</div>
+            <div class="chv-item" id="trm-chv-8"><span class="chv-num">08</span> 대본</div>
           </div>
         </div>
         <button class="trm-close" id="trm-close-btn">&times;</button>
@@ -5028,7 +5084,6 @@ async function openTopicRecommendModal(api, groupTag) {
         <div class="trm-loading" id="trm-1-loading">지침과 TOP200 데이터를 불러오는 중...</div>
         <textarea class="trm-content-area" id="trm-1-content" readonly spellcheck="false" style="display:none;"></textarea>
         <div class="trm-footer trm-footer-center">
-          <button class="trm-btn trm-btn-cancel" id="trm-1-cancel-btn">취소</button>
           <button class="trm-btn trm-btn-copy" id="trm-1-copy-btn" disabled>복사하기</button>
           <button class="trm-btn trm-btn-next" id="trm-1-next-btn" disabled>다음 단계로 →</button>
         </div>
@@ -5041,10 +5096,6 @@ async function openTopicRecommendModal(api, groupTag) {
         <div class="trm-field">
           <label class="trm-label">주제명</label>
           <input type="text" class="trm-input" id="trm-topic-title" placeholder="예: 장터에서 매맞는 머슴 하나 사왔더니 복이 쏟아졌다" autocomplete="off">
-        </div>
-        <div class="trm-field">
-          <label class="trm-label">요약 내용</label>
-          <textarea class="trm-textarea" id="trm-topic-summary" placeholder="AI가 생성한 주제의 줄거리, 등장인물, 핵심 사건 등을 입력하세요." autocomplete="off"></textarea>
         </div>
         <div class="trm-footer trm-footer-center">
           <button class="trm-btn trm-btn-back" id="trm-2-back-btn">← 이전</button>
@@ -5069,7 +5120,7 @@ async function openTopicRecommendModal(api, groupTag) {
       <div class="trm-step-body trm-hidden" id="trm-body-4">
         <div class="trm-step-title">4단계 \u2014 썸네일 제목 입력</div>
         <div class="trm-step-desc">AI가 생성한 썸네일 제목을 아래에 입력하세요.</div>
-        <div class="trm-field" style="flex-grow:0;">
+        <div class="trm-field">
           <label class="trm-label">썸네일 제목</label>
           <p class="trm-field-hint">썸네일 제목으로 스토리 설계 프롬프트에 반영됩니다.</p>
           <textarea class="trm-textarea" id="trm-thumb-titles" placeholder="AI가 생성한 썸네일 제목들을 입력하세요. 여러 개인 경우 줄바꿈으로 구분하세요." autocomplete="off"></textarea>
@@ -5080,57 +5131,93 @@ async function openTopicRecommendModal(api, groupTag) {
         </div>
       </div>
 
-      <!-- 5단계: 스토리 설계 프롬프트 생성 -->
+      <!-- 5단계: 소재 추천 + 스크립트 다운로드 -->
       <div class="trm-step-body trm-hidden" id="trm-body-5">
-        <div class="trm-step-title">5단계 \u2014 스토리 설계 프롬프트 생성</div>
-
-        <div class="trm-5-content-area">
-          <!-- 상태A: DNA 추천 전 -->
-          <div id="trm-5-recommend" class="trm-5-section">
-            <div class="trm-step-desc">참고할 DNA를 추천받으려면 API를 선택하고 추천 받기를 눌러주세요.</div>
-            <div class="trm-api-select">
-              <label class="trm-radio-label">
-                <input type="radio" name="trm-5-api" value="ai_studio" checked>
-                Google Studio API
-              </label>
-              <label class="trm-radio-label">
-                <input type="radio" name="trm-5-api" value="vertex_ai">
-                Google Cloud API
-              </label>
-            </div>
-            <div id="trm-5-warn" class="trm-5-warn trm-hidden"></div>
-            <button class="trm-btn trm-btn-primary" id="trm-5-recommend-btn">DNA 추천 받기</button>
-            <div class="trm-loading trm-hidden" id="trm-5-loading">DNA를 분석하고 추천하는 중...</div>
-          </div>
-
-          <!-- 상태B: DNA 추천 후 (카드 목록) -->
-          <div id="trm-5-cards-section" class="trm-5-section trm-hidden">
-            <div class="trm-step-desc">추천된 DNA 중 하나를 선택하고 프롬프트를 생성하세요.</div>
-            <div id="trm-5-cards"></div>
-          </div>
-
-          <!-- 상태C: 프롬프트 생성 후 -->
-          <div id="trm-5-prompt" class="trm-5-section trm-hidden">
-            <div class="trm-step-desc">스토리 설계 프롬프트가 생성되었습니다. 복사하여 AI에 붙여넣기 하세요.</div>
-            <textarea class="trm-content-area" id="trm-5-content" readonly></textarea>
-          </div>
+        <div class="trm-step-title">5단계 \u2014 소재 추천 + 스크립트 다운로드</div>
+        <div class="trm-step-desc">TOP50 인기 영상에서 중복되지 않는 소재 3가지를 추천합니다.</div>
+        <div class="trm-loading trm-hidden" id="trm-5-material-loading">소재를 분석하는 중...</div>
+        <button class="trm-btn trm-btn-secondary trm-hidden" id="trm-5-retry-btn" style="margin-bottom:12px;">소재 재추천 받기</button>
+        <div id="trm-5-cards-area" class="trm-hidden"></div>
+        <div class="trm-footer trm-footer-center">
+          <button class="trm-btn trm-btn-back" id="trm-5-back-btn">← 이전</button>
+          <button class="trm-btn trm-btn-primary" id="trm-5-material-btn">소재 추천 받기</button>
+          <button class="trm-btn trm-btn-copy trm-hidden" id="trm-5-dl-all-btn">전체 다운로드</button>
+          <button class="trm-btn trm-btn-next trm-hidden" id="trm-5-next-btn" disabled>다음 단계로 →</button>
         </div>
+      </div>
 
-        <div class="trm-footer">
-          <div class="trm-footer-left">
-            <button class="trm-btn trm-btn-back" id="trm-5-back-btn">← 이전</button>
-          </div>
-          <div class="trm-footer-right">
-            <button class="trm-btn trm-btn-primary trm-hidden" id="trm-5-gen-btn">프롬프트 생성하기</button>
-            <button class="trm-btn trm-btn-copy trm-hidden" id="trm-5-copy-btn">복사하기</button>
-            <button class="trm-btn trm-btn-primary trm-hidden" id="trm-5-save-btn">저장하고 완료</button>
-          </div>
+      <!-- 6단계: DNA 분석 지침/결과 -->
+      <div class="trm-step-body trm-hidden" id="trm-body-6">
+        <div class="trm-step-title">6단계 \u2014 DNA 분석</div>
+        <div class="trm-step-desc">외부에서 DNA 분석을 진행하고 결과를 붙여넣으세요.</div>
+        <div style="margin-bottom:12px;">
+          <button class="trm-btn trm-btn-copy" id="trm-6-copy-guide-btn">DNA 분석 지침 복사</button>
+        </div>
+        <div class="trm-field" style="flex-grow:1;">
+          <label class="trm-label">DNA 분석 결과</label>
+          <textarea class="trm-content-area" id="trm-6-result" rows="12" placeholder="분석 결과를 붙여넣으세요..." spellcheck="false"></textarea>
+        </div>
+        <div class="trm-footer trm-footer-center">
+          <button class="trm-btn trm-btn-back" id="trm-6-back-btn">← 이전</button>
+          <button class="trm-btn trm-btn-next" id="trm-6-next-btn">저장 후 다음 단계</button>
+        </div>
+      </div>
+
+      <!-- 7단계: 글쓰기 프롬프트 얻기/결과 -->
+      <div class="trm-step-body trm-hidden" id="trm-body-7">
+        <div class="trm-step-title">7단계 \u2014 글쓰기 프롬프트</div>
+        <div class="trm-step-desc">글쓰기 프롬프트를 외부에서 생성하고 결과를 붙여넣으세요.</div>
+        <div style="margin-bottom:12px;">
+          <button class="trm-btn trm-btn-copy" id="trm-7-copy-guide-btn">글쓰기 프롬프트 얻기 지침 복사</button>
+        </div>
+        <div class="trm-field" style="flex-grow:1;">
+          <label class="trm-label">글쓰기 프롬프트 결과</label>
+          <textarea class="trm-content-area" id="trm-7-result" rows="12" placeholder="생성된 프롬프트를 붙여넣으세요..." spellcheck="false"></textarea>
+        </div>
+        <div class="trm-footer trm-footer-center">
+          <button class="trm-btn trm-btn-back" id="trm-7-back-btn">← 이전</button>
+          <button class="trm-btn trm-btn-next" id="trm-7-next-btn">저장 후 다음 단계</button>
+        </div>
+      </div>
+
+      <!-- 8단계: 최종 대본 입력 -->
+      <div class="trm-step-body trm-hidden" id="trm-body-8">
+        <div class="trm-step-title">8단계 \u2014 최종 대본</div>
+        <div class="trm-step-desc">최종 대본을 붙여넣고 저장하세요.</div>
+        <div class="trm-field" style="flex-grow:1;">
+          <label class="trm-label">최종 대본</label>
+          <textarea class="trm-content-area" id="trm-8-script" rows="16" placeholder="완성된 대본을 붙여넣으세요..." spellcheck="false"></textarea>
+        </div>
+        <div class="trm-footer trm-footer-center">
+          <button class="trm-btn trm-btn-back" id="trm-8-back-btn">← 이전</button>
+          <button class="trm-btn trm-btn-copy" id="trm-8-dl-btn" disabled>대본 다운로드</button>
+          <button class="trm-btn trm-btn-primary" id="trm-8-save-btn">저장하고 완료</button>
         </div>
       </div>
     </div>
-  `;
+  `
 
   document.body.appendChild(overlay);
+
+  // ── 커스텀 confirm 다이얼로그 (native dialog 대체 — focus 손실 방지) ──
+  function trConfirm(savedStep) {
+    return new Promise(function(resolve) {
+      const dlg = document.createElement('div');
+      dlg.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);';
+      dlg.innerHTML =
+        '<div style="background:#1e1e2e;border:1px solid rgba(124,92,255,0.35);border-radius:14px;padding:32px 36px;max-width:380px;width:90%;text-align:center;">' +
+          '<p style="color:#fff;font-size:15px;line-height:1.7;margin:0 0 8px;font-weight:700;">이전 작업이 있습니다</p>' +
+          '<p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0 0 28px;">' + (savedStep && Number(savedStep) > 1 ? savedStep + '단계까지 진행한 내용이' : '이전에 진행한 내용이') + ' 저장되어 있습니다.</p>' +
+          '<div style="display:flex;gap:12px;justify-content:center;">' +
+            '<button id="tr-dlg-new" style="padding:10px 22px;border-radius:8px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.07);color:#ccc;font-size:14px;cursor:pointer;">새로 시작</button>' +
+            '<button id="tr-dlg-resume" style="padding:10px 22px;border-radius:8px;border:none;background:linear-gradient(90deg,#5b21b6,#7c3aed);color:#fff;font-size:14px;cursor:pointer;font-weight:600;">이어서 진행 →</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(dlg);
+      dlg.querySelector('#tr-dlg-resume').addEventListener('click', function() { dlg.remove(); resolve(true); });
+      dlg.querySelector('#tr-dlg-new').addEventListener('click', function() { dlg.remove(); resolve(false); });
+    });
+  }
 
   // ── 유틸 ──
   function updateChevronSteps(activeIdx) {
@@ -5142,7 +5229,7 @@ async function openTopicRecommendModal(api, groupTag) {
   }
 
   function showStep(n) {
-    [1, 2, 3, 4, 5].forEach(i => {
+    [1, 2, 3, 4, 5, 6, 7, 8].forEach(i => {
       const body = overlay.querySelector('#trm-body-' + i);
       if (body) body.classList.toggle('trm-hidden', i !== n);
     });
@@ -5150,17 +5237,28 @@ async function openTopicRecommendModal(api, groupTag) {
     trSet('tr_step', n);
   }
 
-  async function copyToClipboard(text) {
-    await navigator.clipboard.writeText(text);
+  function copyToClipboard(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (!ok) throw new Error('클립보드 복사 실패');
   }
 
-  // ── 닫기 버튼 (X) — 상태 보존하며 닫기 ──
+  // ── 닫기 버튼 (X) — 데이터 보존하며 닫기 ──
   overlay.querySelector('#trm-close-btn').addEventListener('click', () => {
     overlay.remove();
   });
 
   // ── 1단계 초기화 ──
   async function initStep1() {
+    const body = overlay.querySelector('#trm-body-1');
+    if (body.dataset.bound) return;
+    body.dataset.bound = 'true';
     const loadingEl = overlay.querySelector('#trm-1-loading');
     const contentEl = overlay.querySelector('#trm-1-content');
     const copyBtn = overlay.querySelector('#trm-1-copy-btn');
@@ -5179,7 +5277,7 @@ async function openTopicRecommendModal(api, groupTag) {
 
     try {
       const [guidelineRes, top200Res] = await Promise.all([
-        api.request('/guidelines?type=topic_prompt'),
+        api.request(`/guidelines?type=topic_prompt&category=${encodeURIComponent(groupTag)}`),
         api.getTop200Titles(groupTag)
       ]);
 
@@ -5219,21 +5317,13 @@ async function openTopicRecommendModal(api, groupTag) {
     }
   }
 
-  // 취소 버튼
-  overlay.querySelector('#trm-1-cancel-btn').addEventListener('click', () => {
-    if (confirm('작업을 취소하시겠습니까?')) {
-      trClear();
-      overlay.remove();
-    }
-  });
-
   // 복사하기 버튼 — 복사만, 자동 전환 없음
   overlay.querySelector('#trm-1-copy-btn').addEventListener('click', async () => {
     const content = overlay.querySelector('#trm-1-content').value;
     if (!content) return;
     const btn = overlay.querySelector('#trm-1-copy-btn');
     try {
-      await copyToClipboard(content);
+      copyToClipboard(content);
       btn.textContent = '복사 완료!';
       btn.classList.add('trm-btn-copied');
       setTimeout(function() {
@@ -5253,45 +5343,48 @@ async function openTopicRecommendModal(api, groupTag) {
 
   // ── 2단계 초기화 ──
   function initStep2() {
+    const body = overlay.querySelector('#trm-body-2');
     const titleInput = overlay.querySelector('#trm-topic-title');
-    const summaryInput = overlay.querySelector('#trm-topic-summary');
     const nextBtn = overlay.querySelector('#trm-2-next-btn');
 
-    // 보완 1: 복원
-    titleInput.value = trGet('tr_topic_title') || '';
-    summaryInput.value = trGet('tr_topic_summary') || '';
+    if (!body.dataset.bound) {
+      body.dataset.bound = 'true';
 
-    function checkInputs() {
-      nextBtn.disabled = !titleInput.value.trim() || !summaryInput.value.trim();
-    }
+      // 복원
+      titleInput.value = trGet('tr_topic_title') || '';
 
-    // 보완 9: 실시간 임시저장 (500ms 딜레이)
-    let debTimer = null;
-    function autoSave() {
-      clearTimeout(debTimer);
-      debTimer = setTimeout(function() {
+      function checkInputs() {
+        nextBtn.disabled = !titleInput.value.trim();
+      }
+
+      // 실시간 임시저장 (500ms 딜레이)
+      let debTimer = null;
+      function autoSave() {
+        clearTimeout(debTimer);
+        debTimer = setTimeout(function() {
+          trSet('tr_topic_title', titleInput.value.trim());
+        }, 500);
+      }
+
+      titleInput.addEventListener('input', function() { checkInputs(); autoSave(); });
+      checkInputs();
+
+      overlay.querySelector('#trm-2-back-btn').addEventListener('click', function() { showStep(1); initStep1(); });
+      nextBtn.addEventListener('click', function() {
         trSet('tr_topic_title', titleInput.value.trim());
-        trSet('tr_topic_summary', summaryInput.value.trim());
-      }, 500);
+        showStep(3);
+        initStep3();
+      });
     }
 
-    titleInput.addEventListener('input', function() { checkInputs(); autoSave(); });
-    summaryInput.addEventListener('input', function() { checkInputs(); autoSave(); });
-    checkInputs();
-
-    // 보완 6: 이전 단계 이동 (입력 내용 보존)
-    overlay.querySelector('#trm-2-back-btn').addEventListener('click', function() { showStep(1); initStep1(); });
-
-    nextBtn.addEventListener('click', function() {
-      trSet('tr_topic_title', titleInput.value.trim());
-      trSet('tr_topic_summary', summaryInput.value.trim());
-      showStep(3);
-      initStep3();
-    });
+    nextBtn.disabled = !titleInput.value.trim();
   }
 
   // ── 3단계 초기화 ──
   async function initStep3() {
+    const body = overlay.querySelector('#trm-body-3');
+    if (body.dataset.bound) return;
+    body.dataset.bound = 'true';
     const loadingEl = overlay.querySelector('#trm-3-loading');
     const contentEl = overlay.querySelector('#trm-3-content');
     const copyBtn = overlay.querySelector('#trm-3-copy-btn');
@@ -5323,7 +5416,7 @@ async function openTopicRecommendModal(api, groupTag) {
     }
 
     try {
-      const guidelineRes = await api.request('/guidelines?type=thumbnail_prompt');
+      const guidelineRes = await api.request(`/guidelines?type=thumbnail_prompt&category=${encodeURIComponent(groupTag)}`);
       const guidelines = Array.isArray(guidelineRes) ? guidelineRes : [];
       const activeGuideline = guidelines.find(g => g.is_active) || guidelines[0];
 
@@ -5376,7 +5469,7 @@ async function openTopicRecommendModal(api, groupTag) {
     if (!content) return;
     const btn = overlay.querySelector('#trm-3-copy-btn');
     try {
-      await copyToClipboard(content);
+      copyToClipboard(content);
       btn.textContent = '복사 완료!';
       btn.classList.add('trm-btn-copied');
       setTimeout(function() {
@@ -5396,8 +5489,18 @@ async function openTopicRecommendModal(api, groupTag) {
 
   // ── 4단계 초기화 ──
   function initStep4() {
+    const body = overlay.querySelector('#trm-body-4');
     const thumbInput = overlay.querySelector('#trm-thumb-titles');
     const nextBtn = overlay.querySelector('#trm-4-next-btn');
+
+    // 포커스는 매번 (Electron native dialog 후 focus 손실 방지)
+    setTimeout(function() { thumbInput.focus(); }, 50);
+
+    if (body.dataset.bound) {
+      nextBtn.disabled = !thumbInput.value.trim();
+      return;
+    }
+    body.dataset.bound = 'true';
 
     // 복원
     thumbInput.value = trGet('tr_thumb_titles') || '';
@@ -5410,7 +5513,6 @@ async function openTopicRecommendModal(api, groupTag) {
       clearTimeout(debTimer);
       debTimer = setTimeout(function() {
         trSet('tr_thumb_titles', thumbInput.value);
-        // 첫 번째 줄을 대표 썸네일 제목으로 별도 저장
         const firstLine = thumbInput.value.split('\n')[0].trim();
         trSet('tr_thumb_title_main', firstLine);
       }, 500);
@@ -5437,289 +5539,483 @@ async function openTopicRecommendModal(api, groupTag) {
     });
   }
 
-  // ── 5단계 초기화 ──
+  // ── 5단계 초기화 (소재 추천) ──
   async function initStep5() {
-    const warnEl = overlay.querySelector('#trm-5-warn');
-    const recommendBtn  = overlay.querySelector('#trm-5-recommend-btn');
-    const loadingEl     = overlay.querySelector('#trm-5-loading');
-    const cardsEl       = overlay.querySelector('#trm-5-cards');
-    const cardsSection  = overlay.querySelector('#trm-5-cards-section');
-    const promptSection = overlay.querySelector('#trm-5-prompt');
-    const recommendSection = overlay.querySelector('#trm-5-recommend');
-    const contentArea   = overlay.querySelector('#trm-5-content');
-    const genBtn        = overlay.querySelector('#trm-5-gen-btn');
-    const copyBtn       = overlay.querySelector('#trm-5-copy-btn');
-    const saveBtn       = overlay.querySelector('#trm-5-save-btn');
+    const materialBtn = overlay.querySelector('#trm-5-material-btn');
+    const loadingEl   = overlay.querySelector('#trm-5-material-loading');
+    const cardsArea   = overlay.querySelector('#trm-5-cards-area');
+    const dlAllBtn    = overlay.querySelector('#trm-5-dl-all-btn');
+    const nextBtn     = overlay.querySelector('#trm-5-next-btn');
+    const backBtn     = overlay.querySelector('#trm-5-back-btn');
+    const retryBtn    = overlay.querySelector('#trm-5-retry-btn');
 
-    // ── 이전 버튼 ──
-    const backBtn5 = overlay.querySelector('#trm-5-back-btn');
-    if (!backBtn5.dataset.bound) {
-      backBtn5.dataset.bound = 'true';
-      backBtn5.addEventListener('click', function() {
-        showStep(4);
-        initStep4();
+    // ── 뒤로가기 ──
+    if (!backBtn.dataset.bound) {
+      backBtn.dataset.bound = 'true';
+      backBtn.addEventListener('click', function() {
+        showStep(4); initStep4();
       });
     }
 
-    // ── 복사 버튼 ──
-    if (!copyBtn.dataset.bound) {
-      copyBtn.dataset.bound = 'true';
-      copyBtn.addEventListener('click', async () => {
-        await copyToClipboard(contentArea.value);
-        const orig = copyBtn.textContent;
-        copyBtn.textContent = '복사 완료!';
-        setTimeout(() => { copyBtn.textContent = orig; }, 2000);
+    // ── 초기 상태 설정 ──
+    var savedMaterials = trGet('tr_material_data');
+    if (savedMaterials) {
+      try {
+        var mats = JSON.parse(savedMaterials);
+        if (mats && mats.length > 0) {
+          renderCards(mats);
+        } else {
+          resetUI();
+          materialBtn.style.display = '';
+          materialBtn.disabled = false;
+          materialBtn.textContent = '소재 추천 받기';
+        }
+      } catch(e) {
+        resetUI();
+        materialBtn.style.display = '';
+        materialBtn.disabled = false;
+        materialBtn.textContent = '소재 추천 받기';
+      }
+    } else {
+      resetUI();
+      materialBtn.style.display = '';
+      materialBtn.disabled = false;
+      materialBtn.textContent = '소재 추천 받기';
+    }
+
+    // ── 소재 추천 버튼 (매번 API 호출) ──
+    materialBtn.onclick = async function() {
+      materialBtn.disabled = true;
+      materialBtn.textContent = '소재 추천 중...';
+      loadingEl.style.display = '';
+      loadingEl.classList.remove('trm-hidden');
+      try {
+        let currentExclude = [];
+        try {
+          currentExclude = JSON.parse(
+            trGet('tr_exclude_materials') || '[]'
+          );
+        } catch(e) {}
+        const result = await api.recommendMaterials({
+          limit: 50,
+          genre: groupTag,
+          exclude_ids: currentExclude
+        });
+        if (!result.success || !result.materials) {
+          throw new Error(result.error || '소재 추천 실패');
+        }
+        trSet('tr_material_data', JSON.stringify(result.materials));
+        if (result.materials.length === 0) {
+          localStorage.removeItem('tr_exclude_materials');
+          showToast('추천 가능한 소재를 모두 확인했습니다. 다시 추천합니다.', 'info');
+          materialBtn.disabled = false;
+          materialBtn.textContent = '소재 추천 받기';
+          loadingEl.classList.add('trm-hidden');
+          return;
+        }
+        if (result.materials.length < 3) {
+          showToast(result.materials.length + '개의 소재만 추천 가능합니다.', 'info');
+        }
+        renderCards(result.materials);
+      } catch(e) {
+        showToast('소재 추천 실패: ' + e.message, 'error');
+        materialBtn.disabled = false;
+        materialBtn.textContent = '소재 추천 받기';
+        loadingEl.classList.add('trm-hidden');
+      }
+    };
+
+    // ── 재추천 버튼 ──
+    retryBtn.onclick = function() {
+      let excludeList = [];
+      try {
+        const prev = JSON.parse(trGet('tr_exclude_materials') || '[]');
+        const current = JSON.parse(trGet('tr_material_data') || '[]');
+        const currentIds = [];
+        current.forEach(function(item) {
+          if (item.video_id) currentIds.push(item.video_id);
+        });
+        excludeList = [...new Set([...prev, ...currentIds])];
+      } catch(e) {}
+      trSet('tr_exclude_materials', JSON.stringify(excludeList));
+      localStorage.removeItem('tr_material_data');
+      resetUI();
+      materialBtn.style.display = '';
+      materialBtn.disabled = false;
+      materialBtn.textContent = '소재 추천 받기';
+    };
+
+    // ── 다음 단계 ──
+    nextBtn.onclick = function() {
+      showStep(6); initStep6();
+    };
+
+    // ── UI 초기화 함수 ──
+    function resetUI() {
+      cardsArea.innerHTML = '';
+      cardsArea.classList.add('trm-hidden');
+      dlAllBtn.classList.add('trm-hidden');
+      nextBtn.classList.add('trm-hidden');
+      nextBtn.disabled = true;
+      retryBtn.classList.add('trm-hidden');
+      loadingEl.style.display = '';
+      loadingEl.classList.add('trm-hidden');
+    }
+
+    // ── 카드 렌더링 함수 ──
+    function renderCards(materials) {
+      materialBtn.style.display = 'none';
+      loadingEl.classList.add('trm-hidden');
+      cardsArea.classList.remove('trm-hidden');
+      dlAllBtn.classList.remove('trm-hidden');
+      nextBtn.classList.remove('trm-hidden');
+      nextBtn.disabled = false;
+      retryBtn.classList.remove('trm-hidden');
+
+      function fmtNum(n) {
+        if (!n) return '0';
+        if (n >= 10000) return (n / 10000).toFixed(1) + '만';
+        return Number(n).toLocaleString();
+      }
+      function fmtDur(sec) {
+        if (!sec) return '';
+        return Math.floor(sec / 60) + '분 ' + (sec % 60) + '초';
+      }
+      function fmtDate(dateStr) {
+        if (!dateStr) return '';
+        var d = new Date(dateStr);
+        var days = Math.floor((Date.now() - d.getTime()) / 86400000);
+        return d.getFullYear() + '. ' +
+          String(d.getMonth() + 1).padStart(2, '0') + '. ' +
+          String(d.getDate()).padStart(2, '0') + '. (' + days + '일 전)';
+      }
+      function gradeClass(ratio) {
+        if (ratio >= 500) return 'spike-grade-super';
+        if (ratio >= 300) return 'spike-grade-great';
+        if (ratio >= 150) return 'spike-grade-great';
+        if (ratio >= 80) return 'spike-grade-good';
+        return '';
+      }
+      function gradeLabel(ratio) {
+        if (ratio >= 500) return '초대박';
+        if (ratio >= 300) return '대박';
+        if (ratio >= 150) return '떡상';
+        if (ratio >= 80) return '선방';
+        return '보통';
+      }
+      var catColors = {
+        REL: '#4a90d9', EVT: '#e67e22', EMO: '#9b59b6',
+        TWIST: '#27ae60', OTHER: '#7f8c8d'
+      };
+
+      cardsArea.innerHTML = materials.map(function(m, idx) {
+        var ytUrl = 'https://www.youtube.com/watch?v=' + m.video_id_youtube;
+        var thumbSrc = m.thumbnail_url ||
+          ('https://i.ytimg.com/vi/' + m.video_id_youtube + '/mqdefault.jpg');
+        var ratio = parseFloat(m.spike_ratio) || 0;
+        var gClass = gradeClass(ratio);
+        var gLabel = gradeLabel(ratio);
+        var catColor = catColors[m.category] || '#7f8c8d';
+        var dlBtn = m.has_transcript
+          ? '<button class="trm-btn trm-btn-copy trm-mat-dl-btn" data-idx="' + idx + '">스크립트 다운로드</button>'
+          : '<span style="color:#888;font-size:12px;">자막 없음</span>';
+
+        return '<div class="spike-video-item" data-idx="' + idx + '">' +
+          '<div class="spike-video-thumb-area">' +
+            '<a href="' + ytUrl + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">' +
+              '<div class="spike-video-thumb">' +
+                '<img src="' + thumbSrc + '" alt="" loading="lazy" ' +
+                  'onerror="this.src=\'https://i.ytimg.com/vi/' + m.video_id_youtube + '/mqdefault.jpg\'">' +
+                '<div class="spike-video-thumb-play"><span>▶</span></div>' +
+              '</div>' +
+            '</a>' +
+            '<div class="spike-video-rank-badge">' + (idx + 1) + '위</div>' +
+          '</div>' +
+          '<div class="spike-video-info">' +
+            '<div class="spike-video-title-row">' +
+              '<a class="spike-video-title-link" href="' + ytUrl + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">' + m.title + '</a>' +
+              '<span style="background:' + catColor + ';color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:700;flex-shrink:0;">' + m.category_label + '</span>' +
+            '</div>' +
+            '<div class="spike-video-meta">' +
+              '<span class="spike-meta-channel">' + (m.channel_name || '') + '</span>' +
+              (m.subscriber_count ? '<span class="spike-meta-divider">\u2503</span><span>구독자 ' + fmtNum(m.subscriber_count) + '</span>' : '') +
+            '</div>' +
+            '<div class="spike-video-stats">' +
+              '<div class="spike-stats-row">' +
+                (m.daily_avg_views ? '<span class="spike-stat spike-stat-ratio">일평균 ' + fmtNum(m.daily_avg_views) + '회</span>' : '') +
+                (ratio ? '<span class="spike-stat spike-stat-ratio">떡상 ' + ratio.toFixed(1) + '배</span>' : '') +
+                (gLabel ? '<span class="spike-stat ' + gClass + '">' + gLabel + '</span>' : '') +
+              '</div>' +
+              '<div class="spike-stats-row">' +
+                (m.view_count ? '<span class="spike-stat spike-stat-views">조회수 ' + fmtNum(m.view_count) + '</span>' : '') +
+                (m.duration_seconds ? '<span class="spike-stat">\u23f1 ' + fmtDur(m.duration_seconds) + '</span>' : '') +
+              '</div>' +
+            '</div>' +
+            (m.published_at ? '<div class="spike-card-date">' + fmtDate(m.published_at) + '</div>' : '') +
+            '<div style="margin-top:8px;">' + dlBtn + '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      // 개별 다운로드
+      cardsArea.querySelectorAll('.trm-mat-dl-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var m = materials[Number(btn.dataset.idx)];
+          if (m && m.transcript_raw) {
+            downloadTxt(
+              m.title.substring(0, 30) + '_스크립트.txt',
+              m.transcript_raw
+            );
+          }
+        });
+      });
+
+      // 전체 다운로드 (매번 새로 바인딩)
+      dlAllBtn.onclick = function() {
+        materials.forEach(function(m) {
+          if (m.transcript_raw) {
+            downloadTxt(
+              m.title.substring(0, 30) + '_스크립트.txt',
+              m.transcript_raw
+            );
+          }
+        });
+      };
+    }
+  }
+
+  // ── 6단계 초기화 (DNA 분석) ──
+  async function initStep6() {
+    const body         = overlay.querySelector('#trm-body-6');
+    const copyGuideBtn = overlay.querySelector('#trm-6-copy-guide-btn');
+    const textarea     = overlay.querySelector('#trm-6-result');
+    const nextBtn      = overlay.querySelector('#trm-6-next-btn');
+    const backBtn      = overlay.querySelector('#trm-6-back-btn');
+
+    textarea.value = trGet('tr_dna_analysis_result') || '';
+    setTimeout(function() { textarea.focus(); }, 50);
+
+    if (body.dataset.bound) return;
+    body.dataset.bound = 'true';
+
+    if (!backBtn.dataset.bound) {
+      backBtn.dataset.bound = 'true';
+      backBtn.addEventListener('click', function() { showStep(5); initStep5(); });
+    }
+
+    if (!copyGuideBtn.dataset.bound) {
+      copyGuideBtn.dataset.bound = 'true';
+      copyGuideBtn.addEventListener('click', async function() {
+        try {
+          const res = await api.request(`/guidelines?type=dna_analysis_guide&active=1&category=${encodeURIComponent(groupTag)}`);
+          const guides = Array.isArray(res) ? res : [];
+          const active = guides.find(function(g) { return g.is_active; }) || guides[0];
+          if (!active) {
+            showToast('설정에서 DNA 분석 지침을 먼저 등록해주세요.', 'warning');
+            return;
+          }
+          const detail = await api.request('/guidelines/' + active.id);
+          await navigator.clipboard.writeText(detail.content || '');
+          const orig = copyGuideBtn.textContent;
+          copyGuideBtn.textContent = '복사 완료!';
+          setTimeout(function() { copyGuideBtn.textContent = orig; }, 2000);
+        } catch(e) {
+          showToast('DNA 분석 지침 복사 실패: ' + e.message, 'error');
+        }
       });
     }
 
-    // ── 저장하고 완료 버튼 ──
-    if (!saveBtn.dataset.bound) {
-      saveBtn.dataset.bound = 'true';
-      saveBtn.addEventListener('click', async () => {
+    if (!nextBtn.dataset.bound) {
+      nextBtn.dataset.bound = 'true';
+      nextBtn.addEventListener('click', function() {
+        const val = textarea.value.trim();
+        if (!val) { showToast('분석 결과를 입력해주세요.', 'warning'); return; }
+        trSet('tr_dna_analysis_result', val);
+        showStep(7);
+        initStep7();
+      });
+    }
+  }
+
+  // ── 7단계 초기화 (글쓰기 프롬프트) ──
+  async function initStep7() {
+    const body         = overlay.querySelector('#trm-body-7');
+    const copyGuideBtn = overlay.querySelector('#trm-7-copy-guide-btn');
+    const textarea     = overlay.querySelector('#trm-7-result');
+    const nextBtn      = overlay.querySelector('#trm-7-next-btn');
+    const backBtn      = overlay.querySelector('#trm-7-back-btn');
+
+    textarea.value = trGet('tr_writing_prompt_result') || '';
+    setTimeout(function() { textarea.focus(); }, 50);
+
+    if (body.dataset.bound) return;
+    body.dataset.bound = 'true';
+
+    if (!backBtn.dataset.bound) {
+      backBtn.dataset.bound = 'true';
+      backBtn.addEventListener('click', function() { showStep(6); initStep6(); });
+    }
+
+    if (!copyGuideBtn.dataset.bound) {
+      copyGuideBtn.dataset.bound = 'true';
+      copyGuideBtn.addEventListener('click', async function() {
+        try {
+          const res = await api.request(`/guidelines?type=writing_prompt_guide&active=1&category=${encodeURIComponent(groupTag)}`);
+          const guides = Array.isArray(res) ? res : [];
+          const active = guides.find(function(g) { return g.is_active; }) || guides[0];
+          if (!active) {
+            showToast('설정에서 글쓰기 프롬프트 얻기 지침을 먼저 등록해주세요.', 'warning');
+            return;
+          }
+          const detail = await api.request('/guidelines/' + active.id);
+          await navigator.clipboard.writeText(detail.content || '');
+          const orig = copyGuideBtn.textContent;
+          copyGuideBtn.textContent = '복사 완료!';
+          setTimeout(function() { copyGuideBtn.textContent = orig; }, 2000);
+        } catch(e) {
+          showToast('글쓰기 프롬프트 지침 복사 실패: ' + e.message, 'error');
+        }
+      });
+    }
+
+    if (!nextBtn.dataset.bound) {
+      nextBtn.dataset.bound = 'true';
+      nextBtn.addEventListener('click', function() {
+        const val = textarea.value.trim();
+        if (!val) { showToast('프롬프트 결과를 입력해주세요.', 'warning'); return; }
+        trSet('tr_writing_prompt_result', val);
+        showStep(8);
+        initStep8();
+      });
+    }
+  }
+
+  // ── 8단계 초기화 (최종 대본) ──
+  function initStep8() {
+    const body     = overlay.querySelector('#trm-body-8');
+    const textarea = overlay.querySelector('#trm-8-script');
+    const dlBtn    = overlay.querySelector('#trm-8-dl-btn');
+    const saveBtn  = overlay.querySelector('#trm-8-save-btn');
+    const backBtn  = overlay.querySelector('#trm-8-back-btn');
+
+    textarea.value = trGet('tr_final_script') || '';
+    dlBtn.disabled = !textarea.value.trim();
+    setTimeout(function() { textarea.focus(); }, 50);
+
+    if (body.dataset.bound) return;
+    body.dataset.bound = 'true';
+
+    backBtn.addEventListener('click', function() { showStep(7); initStep7(); });
+
+    textarea.addEventListener('input', function() {
+      dlBtn.disabled = !textarea.value.trim();
+      trSet('tr_final_script', textarea.value);
+    });
+
+    dlBtn.addEventListener('click', function() {
+      if (!textarea.value.trim()) return;
+      const title = trGet('tr_topic_title') || '대본';
+      downloadTxt(title + '_최종대본.txt', textarea.value);
+    });
+
+    saveBtn.addEventListener('click', async function() {
+        const script = textarea.value.trim();
+        if (!script) { showToast('대본을 입력해주세요.', 'warning'); return; }
         saveBtn.disabled = true;
         saveBtn.textContent = '저장 중...';
         try {
           const thumbText = trGet('tr_thumb_titles') || '';
-          const thumbLines = thumbText.split('\n').map(l => l.trim()).filter(l => l);
+          const thumbLines = thumbText.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l; });
           await api.saveRecommendation({
-            topic_title:        trGet('tr_topic_title') || '',
-            topic_summary:      trGet('tr_topic_summary') || '',
-            thumb_titles:       thumbLines,
-            thumb_title_main:   trGet('tr_thumb_title_main') || '',
-            group_tag:          groupTag,
-            selected_dna_id:    Number(trGet('tr_selected_dna_id') || 0) || null,
-            story_prompt:       trGet('tr_story_prompt') || '',
-            story_guideline_id: Number(trGet('tr_story_guideline_id') || 0) || null
+            topic_title:           trGet('tr_topic_title') || '',
+            topic_summary:         '',
+            thumb_titles:          thumbLines,
+            thumb_title_main:      trGet('tr_thumb_title_main') || '',
+            group_tag:             groupTag,
+            selected_dna_id:       null,
+            story_prompt:          '',
+            story_guideline_id:    null,
+            material_data:         trGet('tr_material_data') || '',
+            dna_analysis_result:   trGet('tr_dna_analysis_result') || '',
+            writing_prompt_result: trGet('tr_writing_prompt_result') || '',
+            final_script:          script
           });
+          for (let i = 1; i <= 8; i++) {
+            const body = overlay.querySelector('#trm-body-' + i);
+            if (body) delete body.dataset.bound;
+          }
           trClear();
           overlay.remove();
           showToast('주제가 저장되었습니다.', 'success');
-        } catch (e) {
+        } catch(e) {
           saveBtn.disabled = false;
           saveBtn.textContent = '저장하고 완료';
           showToast('저장 실패: ' + e.message, 'error');
         }
       });
-    }
-
-    // ── 프롬프트 생성하기 버튼 (footer) ──
-    if (!genBtn.dataset.bound) {
-      genBtn.dataset.bound = 'true';
-      genBtn.addEventListener('click', async () => {
-        const selectedDnaId = trGet('tr_selected_dna_id');
-        if (!selectedDnaId) { showToast('DNA를 선택해주세요.', 'warning'); return; }
-
-        genBtn.disabled = true;
-        genBtn.textContent = '생성 중...';
-
-        try {
-          const result = await api.generateStoryPrompt({
-            selected_dna_id:  Number(selectedDnaId),
-            topic_title:      trGet('tr_topic_title') || '',
-            topic_summary:    trGet('tr_topic_summary') || '',
-            thumb_title_main: trGet('tr_thumb_title_main') || ''
-          });
-
-          if (!result.success) throw new Error(result.message || result.error || '생성 실패');
-
-          trSet('tr_story_prompt', result.story_prompt);
-          trSet('tr_story_guideline_id', result.story_guideline_id);
-
-          // 상태B → 상태C 전환
-          cardsSection.classList.add('trm-hidden');
-          promptSection.classList.remove('trm-hidden');
-          contentArea.value = result.story_prompt;
-          genBtn.classList.add('trm-hidden');
-          copyBtn.classList.remove('trm-hidden');
-          saveBtn.classList.remove('trm-hidden');
-        } catch (e) {
-          showToast('프롬프트 생성 실패: ' + e.message, 'error');
-        } finally {
-          genBtn.disabled = false;
-          genBtn.textContent = '프롬프트 생성하기';
-        }
-      });
-    }
-
-    // ── 복원: 상태C (프롬프트 있음) ──
-    const savedPrompt = trGet('tr_story_prompt');
-    if (savedPrompt) {
-      recommendSection.classList.add('trm-hidden');
-      cardsSection.classList.add('trm-hidden');
-      promptSection.classList.remove('trm-hidden');
-      contentArea.value = savedPrompt;
-      genBtn.classList.add('trm-hidden');
-      copyBtn.classList.remove('trm-hidden');
-      saveBtn.classList.remove('trm-hidden');
-      return;
-    }
-
-    // ── 복원: 상태B (카드 있음) ──
-    const savedRecs = trGet('tr_dna_recommendations');
-    if (savedRecs) {
-      try {
-        const recs = JSON.parse(savedRecs);
-        recommendSection.classList.add('trm-hidden');
-        cardsSection.classList.remove('trm-hidden');
-        renderDnaCards(recs);
-        const savedDnaId = trGet('tr_selected_dna_id');
-        if (savedDnaId) {
-          const radio = cardsEl.querySelector(`input[name="trm-5-dna"][value="${savedDnaId}"]`);
-          if (radio) {
-            radio.checked = true;
-            radio.closest('.trm-dna-card').classList.add('trm-card-selected');
-            genBtn.classList.remove('trm-hidden');
-          }
-        }
-        return;
-      } catch (e) { /* 파싱 실패 시 처음부터 */ }
-    }
-
-    // ── 상태A: DNA 이력 / 지침 확인 ──
-    let dnaOk = true;
-    let guidelineOk = true;
-
-    try {
-      const dnaHist = await api.getDnaHistory(null, null);
-      if (!dnaHist.history || dnaHist.history.length === 0) dnaOk = false;
-    } catch (e) { dnaOk = false; }
-
-    try {
-      const gls = await api.getGuidelinesFiltered(null, 'story_design_prompt', true);
-      if (!gls || gls.length === 0) guidelineOk = false;
-    } catch (e) { guidelineOk = false; }
-
-    const msgs = [];
-    if (!dnaOk) msgs.push('DNA 분석 이력이 없습니다. 먼저 영상 DNA 분석을 진행해주세요.');
-    if (!guidelineOk) msgs.push('설정 > 지침 관리에서 스토리 설계 지침을 먼저 등록해주세요.');
-
-    if (msgs.length > 0) {
-      warnEl.innerHTML = msgs.map(m => `<p>${m}</p>`).join('');
-      warnEl.classList.remove('trm-hidden');
-      recommendBtn.disabled = true;
-    } else {
-      warnEl.classList.add('trm-hidden');
-      recommendBtn.disabled = false;
-    }
-
-    // ── DNA 추천 받기 버튼 ──
-    if (!recommendBtn.dataset.bound) {
-      recommendBtn.dataset.bound = 'true';
-      recommendBtn.addEventListener('click', async () => {
-        const apiType = overlay.querySelector('input[name="trm-5-api"]:checked')?.value || 'ai_studio';
-        recommendBtn.disabled = true;
-        loadingEl.classList.remove('trm-hidden');
-
-        try {
-          const result = await api.recommendDna({
-            topic_title:      trGet('tr_topic_title') || '',
-            topic_summary:    trGet('tr_topic_summary') || '',
-            thumb_title_main: trGet('tr_thumb_title_main') || '',
-            api_type: apiType
-          });
-
-          loadingEl.classList.add('trm-hidden');
-          recommendBtn.disabled = false;
-
-          if (!result.success || !result.recommendations) throw new Error(result.error || '추천 실패');
-
-          // localStorage에 요약 저장
-          const summaryRecs = result.recommendations.map(r => ({
-            dna_id: r.dna_id, type: r.type, reason: r.reason, video_title: r.video_title
-          }));
-          trSet('tr_dna_recommendations', JSON.stringify(summaryRecs));
-
-          // 상태A → 상태B 전환
-          recommendSection.classList.add('trm-hidden');
-          cardsSection.classList.remove('trm-hidden');
-          renderDnaCards(result.recommendations);
-        } catch (e) {
-          loadingEl.classList.add('trm-hidden');
-          recommendBtn.disabled = false;
-          showToast('DNA 추천 실패: ' + e.message, 'error');
-        }
-      });
-    }
-
-    // ── DNA 카드 렌더링 함수 ──
-    function renderDnaCards(recs) {
-      const typeColors = { '안정형': 'trm-badge-blue', '참고형': 'trm-badge-purple', '실험형': 'trm-badge-orange' };
-      cardsEl.innerHTML = recs.map((r, i) => `
-        <div class="trm-dna-card" data-dna-id="${r.dna_id}">
-          <div class="trm-card-header">
-            <label class="trm-card-radio-wrap">
-              <input type="radio" name="trm-5-dna" value="${r.dna_id}">
-            </label>
-            <span class="trm-badge ${typeColors[r.type] || 'trm-badge-blue'}">${r.type}</span>
-            <span class="trm-card-title">${r.video_title || ''}</span>
-            ${r.overall_score != null ? `<span class="trm-card-score">종합 ${r.overall_score}점</span>` : ''}
-          </div>
-          <div class="trm-card-reason">${r.reason || ''}</div>
-          <div class="trm-card-actions">
-            <button class="trm-card-toggle" data-idx="${i}">자세히 보기 ▾</button>
-            <button class="trm-btn-dna-view" data-dna-id="${r.dna_id}">${icons.dna()} DNA 보기</button>
-          </div>
-          <div class="trm-card-detail trm-hidden" id="trm-card-detail-${i}">
-            ${r.hook_type ? `<div class="trm-card-detail-row"><span class="trm-card-detail-label">후킹 유형</span><span>${r.hook_type}</span></div>` : ''}
-            ${r.hook_summary ? `<div class="trm-card-detail-row"><span class="trm-card-detail-label">후킹 방식</span><span>${r.hook_summary}</span></div>` : ''}
-            ${r.emotion_summary ? `<div class="trm-card-detail-row"><span class="trm-card-detail-label">감정 흐름</span><span>${r.emotion_summary}</span></div>` : ''}
-            ${r.comment_positive ? `<div class="trm-card-detail-row"><span class="trm-card-detail-label">댓글 긍정</span><span>${r.comment_positive}</span></div>` : ''}
-            ${r.comment_negative ? `<div class="trm-card-detail-row"><span class="trm-card-detail-label">댓글 부정</span><span>${r.comment_negative}</span></div>` : ''}
-          </div>
-        </div>
-      `).join('');
-
-      // 자세히 보기 토글
-      cardsEl.querySelectorAll('.trm-card-toggle').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const det = cardsEl.querySelector('#trm-card-detail-' + btn.dataset.idx);
-          const open = !det.classList.contains('trm-hidden');
-          det.classList.toggle('trm-hidden', open);
-          btn.textContent = open ? '자세히 보기 ▾' : '접기 ▴';
-        });
-      });
-
-      // DNA 보기 버튼
-      cardsEl.querySelectorAll('.trm-btn-dna-view').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const dnaId = btn.dataset.dnaId;
-          const orig = btn.textContent;
-          btn.disabled = true;
-          btn.textContent = '불러오는 중...';
-          try {
-            const detail = await api.getDnaDetail(dnaId);
-            showDnaResultModal(detail);
-          } catch (err) {
-            showToast('DNA 리포트를 불러올 수 없습니다.', 'error');
-          } finally {
-            btn.disabled = false;
-            btn.textContent = orig;
-          }
-        });
-      });
-
-      // 라디오 선택 시 카드 강조 + footer genBtn 표시
-      cardsEl.querySelectorAll('input[name="trm-5-dna"]').forEach(radio => {
-        radio.addEventListener('change', () => {
-          cardsEl.querySelectorAll('.trm-dna-card').forEach(c => c.classList.remove('trm-card-selected'));
-          radio.closest('.trm-dna-card').classList.add('trm-card-selected');
-          trSet('tr_selected_dna_id', radio.value);
-          genBtn.classList.remove('trm-hidden');
-        });
-      });
-    }
   }
 
-  // ── 저장된 상태 복원 ──
-  const resumeStep = Number(trGet('tr_step') || 1);
-  showStep(resumeStep);
-  if (resumeStep === 1) initStep1();
-  else if (resumeStep === 2) initStep2();
-  else if (resumeStep === 3) initStep3();
-  else if (resumeStep === 4) initStep4();
-  else if (resumeStep === 5) initStep5();
+  // ── 저장된 상태 복원 (이어서 / 새로 시작) ──
+  const savedStep = trGet('tr_step');
+  const hasTrData = Object.keys(localStorage).some(k => k.startsWith('tr_'));
+  (async function() {
+    if (hasTrData) {
+      const resume = await trConfirm(savedStep);
+      if (!resume) {
+        trClear();
+        for (let i = 1; i <= 8; i++) {
+          const body = overlay.querySelector('#trm-body-' + i);
+          if (body) delete body.dataset.bound;
+        }
+        const _materialBtn = overlay.querySelector('#trm-5-material-btn');
+        if (_materialBtn) {
+          _materialBtn.style.display = '';
+          _materialBtn.disabled = false;
+          _materialBtn.textContent = '소재 추천 받기';
+          _materialBtn.onclick = null;
+        }
+        const _retryBtn = overlay.querySelector('#trm-5-retry-btn');
+        if (_retryBtn) {
+          _retryBtn.classList.add('trm-hidden');
+          _retryBtn.onclick = null;
+        }
+        const _dlAllBtn = overlay.querySelector('#trm-5-dl-all-btn');
+        if (_dlAllBtn) {
+          _dlAllBtn.classList.add('trm-hidden');
+          _dlAllBtn.onclick = null;
+        }
+        const _nextBtn = overlay.querySelector('#trm-5-next-btn');
+        if (_nextBtn) {
+          _nextBtn.classList.add('trm-hidden');
+          _nextBtn.disabled = true;
+          _nextBtn.onclick = null;
+        }
+        const _loadingEl = overlay.querySelector('#trm-5-material-loading');
+        if (_loadingEl) {
+          _loadingEl.style.display = '';
+          _loadingEl.classList.add('trm-hidden');
+        }
+        const _cardsArea = overlay.querySelector('#trm-5-cards-area');
+        if (_cardsArea) {
+          _cardsArea.innerHTML = '';
+          _cardsArea.classList.add('trm-hidden');
+        }
+      }
+    }
+    const resumeStep = Number(trGet('tr_step') || 1);
+    showStep(resumeStep);
+    if (resumeStep === 1) initStep1();
+    else if (resumeStep === 2) initStep2();
+    else if (resumeStep === 3) initStep3();
+    else if (resumeStep === 4) initStep4();
+    else if (resumeStep === 5) initStep5();
+    else if (resumeStep === 6) initStep6();
+    else if (resumeStep === 7) initStep7();
+    else if (resumeStep === 8) initStep8();
+  })();
 }
+
+
 function openTopicHistoryModal(api, groupTag) {
   const existingOverlay = document.querySelector('.th-overlay');
   if (existingOverlay) existingOverlay.remove();
@@ -5816,7 +6112,6 @@ function openTopicHistoryModal(api, groupTag) {
 
       const genreName = item.group_tag || '';
       const topicTitle = item.topic_title || '주제명 없음';
-      const topicSummary = item.topic_summary || '';
       const hasDna = !!item.selected_dna_id;
       const hasPrompt = !!(item.story_prompt && item.story_prompt.trim());
 
@@ -5838,6 +6133,22 @@ function openTopicHistoryModal(api, groupTag) {
       const thumbsHtml = thumbTitles.length > 0
         ? thumbTitles.map(t => `<div class="th-detail-thumb-item">${t}</div>`).join('')
         : '<div class="th-detail-thumb-item" style="color:rgba(255,255,255,0.3);">없음</div>';
+
+      let materialsHtml = '';
+      if (item.material_data) {
+        try {
+          const mats = JSON.parse(item.material_data);
+          if (Array.isArray(mats) && mats.length > 0) {
+            materialsHtml = mats.slice(0, 3).map(function(m) {
+              return '<div class="th-mat-item"><span class="th-mat-cat">' + (m.category_label || m.category || '') + '</span> ' + (m.title || '') + '</div>';
+            }).join('');
+          }
+        } catch(e) {}
+      }
+      const hasMaterials = !!materialsHtml;
+      const hasDnaResult = !!(item.dna_analysis_result && item.dna_analysis_result.trim());
+      const hasWritingPrompt = !!(item.writing_prompt_result && item.writing_prompt_result.trim());
+      const hasFinalScript = !!(item.final_script && item.final_script.trim());
 
       const itemEl = document.createElement('div');
       itemEl.className = 'th-item';
@@ -5869,11 +6180,6 @@ function openTopicHistoryModal(api, groupTag) {
             <div class="th-detail-content">${topicTitle}</div>
           </div>
 
-          <div class="th-detail-section">
-            <div class="th-detail-label">요약 내용</div>
-            <div class="th-detail-content">${topicSummary || '-'}</div>
-          </div>
-
           ${hasDna ? `
           <div class="th-detail-section">
             <div class="th-detail-label">참고 DNA</div>
@@ -5886,6 +6192,42 @@ function openTopicHistoryModal(api, groupTag) {
             <div class="th-prompt-box">
               <div class="th-prompt-content">${item.story_prompt}</div>
               <button class="th-prompt-copy-btn" data-prompt="${encodeURIComponent(item.story_prompt)}">프롬프트 복사</button>
+            </div>
+          </div>` : ''}
+
+          ${hasMaterials ? `
+          <div class="th-detail-section">
+            <div class="th-detail-label">추천 소재</div>
+            <div class="th-detail-content">${materialsHtml}</div>
+          </div>` : ''}
+
+          ${hasDnaResult ? `
+          <div class="th-detail-section">
+            <div class="th-detail-label">DNA 분석 결과</div>
+            <div class="th-prompt-box">
+              <div class="th-prompt-content">${item.dna_analysis_result}</div>
+              <button class="th-text-copy-btn" data-text="${encodeURIComponent(item.dna_analysis_result)}">복사</button>
+              <button class="th-text-dl-btn" data-text="${encodeURIComponent(item.dna_analysis_result)}" data-filename="${encodeURIComponent((item.topic_title || '').substring(0, 30) + '_DNA분석.txt')}">다운로드</button>
+            </div>
+          </div>` : ''}
+
+          ${hasWritingPrompt ? `
+          <div class="th-detail-section">
+            <div class="th-detail-label">글쓰기 프롬프트</div>
+            <div class="th-prompt-box">
+              <div class="th-prompt-content">${item.writing_prompt_result}</div>
+              <button class="th-text-copy-btn" data-text="${encodeURIComponent(item.writing_prompt_result)}">복사</button>
+              <button class="th-text-dl-btn" data-text="${encodeURIComponent(item.writing_prompt_result)}" data-filename="${encodeURIComponent((item.topic_title || '').substring(0, 30) + '_글쓰기프롬프트.txt')}">다운로드</button>
+            </div>
+          </div>` : ''}
+
+          ${hasFinalScript ? `
+          <div class="th-detail-section">
+            <div class="th-detail-label">최종 대본</div>
+            <div class="th-prompt-box">
+              <div class="th-prompt-content">${item.final_script}</div>
+              <button class="th-text-copy-btn" data-text="${encodeURIComponent(item.final_script)}">복사</button>
+              <button class="th-text-dl-btn" data-text="${encodeURIComponent(item.final_script)}" data-filename="${encodeURIComponent((item.topic_title || '').substring(0, 30) + '_최종대본.txt')}">다운로드</button>
             </div>
           </div>` : ''}
         </div>
@@ -5911,29 +6253,40 @@ function openTopicHistoryModal(api, groupTag) {
     const deleteBtn = e.target.closest('.th-delete-btn');
     if (deleteBtn) {
       const recId = deleteBtn.closest('.th-item').dataset.id;
-      if (!confirm('이 추천 이력을 삭제하시겠습니까?')) return;
-      try {
-        await api.deleteRecommendation(recId);
-        const itemEl = deleteBtn.closest('.th-item');
-        if (itemEl) itemEl.remove();
-        allItems = allItems.filter(it => String(it.id) !== String(recId));
-        countEl.textContent = body.querySelectorAll('.th-item').length + '건';
-        if (body.querySelectorAll('.th-item').length === 0) {
-          body.innerHTML = '<div class="th-empty">추천 이력이 없습니다.</div>';
+      const itemEl = deleteBtn.closest('.th-item');
+      showTtsConfirm('이 추천 이력을 삭제하시겠습니까?', async function() {
+        try {
+          await api.deleteRecommendation(recId);
+          if (itemEl) itemEl.remove();
+          allItems = allItems.filter(it => String(it.id) !== String(recId));
+          countEl.textContent = body.querySelectorAll('.th-item').length + '건';
+          if (body.querySelectorAll('.th-item').length === 0) {
+            body.innerHTML = '<div class="th-empty">추천 이력이 없습니다.</div>';
+          }
+        } catch(err) {
+          showToast('삭제 중 오류가 발생했습니다.', 'error');
         }
-      } catch(err) {
-        alert('삭제 중 오류가 발생했습니다.');
-      }
+      });
       return;
     }
 
     const copyBtn = e.target.closest('.th-prompt-copy-btn');
     if (copyBtn) {
-      const prompt = decodeURIComponent(copyBtn.dataset.prompt);
-      await navigator.clipboard.writeText(prompt);
-      const orig = copyBtn.textContent;
-      copyBtn.textContent = '복사 완료!';
-      setTimeout(() => { copyBtn.textContent = orig; }, 2000);
+      safeCopy(decodeURIComponent(copyBtn.dataset.prompt), copyBtn);
+      return;
+    }
+
+    const textCopyBtn = e.target.closest('.th-text-copy-btn');
+    if (textCopyBtn) {
+      safeCopy(decodeURIComponent(textCopyBtn.dataset.text), textCopyBtn);
+      return;
+    }
+
+    const textDlBtn = e.target.closest('.th-text-dl-btn');
+    if (textDlBtn) {
+      const text = decodeURIComponent(textDlBtn.dataset.text);
+      const filename = decodeURIComponent(textDlBtn.dataset.filename);
+      downloadTxt(filename, text);
       return;
     }
   });

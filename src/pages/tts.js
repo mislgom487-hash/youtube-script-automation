@@ -1202,97 +1202,130 @@ export async function renderTts(container, { api, navigate, showToast }) {
       }
 
     } else {
-      // === 긴 텍스트: Floating Panel + SSE ===
+      // === 긴 텍스트: Floating Panel + SSE (이어서 생성 지원) ===
       generateBtn.innerHTML = `<svg class="tts-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-dasharray="60" stroke-dashoffset="20"/></svg> 분할 생성 중...`;
 
-      const panel = createFloatingPanel();
-      document.body.appendChild(panel);
-      const pBar = panel.querySelector('.tts-fp-bar');
-      const pStep = panel.querySelector('.tts-fp-step');
-      const pPercent = panel.querySelector('.tts-fp-percent');
-      const pTitle = panel.querySelector('.tts-fp-title');
-      const pMinimize = panel.querySelector('.tts-fp-minimize');
-      const pBody = panel.querySelector('.tts-fp-body');
+      let longForceNew = false;
+      let shouldRestart = false;
 
-      let minimized = false;
-      pMinimize.addEventListener('click', () => {
-        minimized = !minimized;
-        pBody.style.display = minimized ? 'none' : '';
-        pMinimize.textContent = minimized ? '+' : '−';
-      });
+      do {
+        shouldRestart = false;
+        const longAbort = new AbortController();
 
-      try {
-        const response = await fetch('/api/tts/generate-long', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text,
-            language: languageSelect.value,
-            mode: 'custom',
-            speaker: speakerSelect.value,
-            instruct: instructInput.value.trim(),
-            modelSize: '1.7B',
-            seed: parseInt(seedInput.value, 10) || -1,
-            silenceDuration: parseFloat(silenceSlider.value) || 0.5,
-            serverUrl: getSavedServer(),
-            multiSpeaker: multiSpeakerEnabled && analyzedSegments.length > 0,
-            segments: multiSpeakerEnabled ? analyzedSegments.map(seg => ({
-              type: seg.type,
-              speaker: seg.speaker,
-              text: seg.text,
-              instruct: seg.instruct || ''
-            })) : [],
-            speakerMap: multiSpeakerEnabled ? speakerMap : {}
-          })
+        const panel = createFloatingPanel();
+        document.body.appendChild(panel);
+        const pBar = panel.querySelector('.tts-fp-bar');
+        const pStep = panel.querySelector('.tts-fp-step');
+        const pPercent = panel.querySelector('.tts-fp-percent');
+        const pTitle = panel.querySelector('.tts-fp-title');
+        const pMinimize = panel.querySelector('.tts-fp-minimize');
+        const pBody = panel.querySelector('.tts-fp-body');
+        const pNewBtn = panel.querySelector('.tts-fp-new-btn');
+
+        let minimized = false;
+        pMinimize.addEventListener('click', () => {
+          minimized = !minimized;
+          pBody.style.display = minimized ? 'none' : '';
+          pMinimize.textContent = minimized ? '+' : '−';
         });
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+        pNewBtn.addEventListener('click', () => {
+          shouldRestart = true;
+          longForceNew = true;
+          longAbort.abort();
+          panel.remove();
+        });
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        try {
+          const response = await fetch('/api/tts/generate-long', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: longAbort.signal,
+            body: JSON.stringify({
+              text,
+              language: languageSelect.value,
+              mode: 'custom',
+              speaker: speakerSelect.value,
+              instruct: instructInput.value.trim(),
+              modelSize: '1.7B',
+              seed: parseInt(seedInput.value, 10) || -1,
+              silenceDuration: parseFloat(silenceSlider.value) || 0.5,
+              serverUrl: getSavedServer(),
+              multiSpeaker: multiSpeakerEnabled && analyzedSegments.length > 0,
+              segments: multiSpeakerEnabled ? analyzedSegments.map(seg => ({
+                type: seg.type, speaker: seg.speaker,
+                text: seg.text, instruct: seg.instruct || ''
+              })) : [],
+              speakerMap: multiSpeakerEnabled ? speakerMap : {},
+              forceNew: longForceNew
+            })
+          });
+          longForceNew = false;
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop();
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
 
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const event = JSON.parse(line.substring(6));
-                if (event.type === 'start') {
-                  pStep.textContent = event.message;
-                  pTitle.textContent = `TTS 생성 (${event.totalChunks}파트)`;
-                } else if (event.type === 'progress') {
-                  pBar.style.width = event.percent + '%';
-                  pPercent.textContent = event.percent + '%';
-                  pStep.textContent = event.message;
-                } else if (event.type === 'complete') {
-                  pBar.style.width = '100%';
-                  pPercent.textContent = '100%';
-                  pStep.textContent = event.message;
-                  pTitle.textContent = 'TTS 생성 완료';
-                  setTimeout(async () => {
-                    panel.remove();
-                    await showResult(event);
-                    showToast(`음성이 생성되었습니다. (${event.totalChunks}개 파트 병합)`, 'success');
-                  }, 1500);
-                } else if (event.type === 'error') {
-                  pStep.textContent = event.message;
-                  pBar.style.background = 'var(--danger)';
-                  setTimeout(() => { panel.remove(); }, 3000);
-                  showToast(event.message || '생성 중 오류가 발생했습니다.', 'error');
-                }
-              } catch (pe) {}
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const event = JSON.parse(line.substring(6));
+                  if (event.type === 'resume') {
+                    pTitle.textContent = `TTS 이어서 생성 (${event.totalChunks}파트)`;
+                    pStep.textContent = event.message;
+                    pBar.style.width = event.percent + '%';
+                    pPercent.textContent = event.percent + '%';
+                    pNewBtn.style.display = '';
+                  } else if (event.type === 'start') {
+                    pStep.textContent = event.message;
+                    pTitle.textContent = `TTS 생성 (${event.totalChunks}파트)`;
+                  } else if (event.type === 'progress') {
+                    pBar.style.width = event.percent + '%';
+                    pPercent.textContent = event.percent + '%';
+                    pStep.textContent = event.message;
+                  } else if (event.type === 'complete') {
+                    pBar.style.width = '100%';
+                    pPercent.textContent = '100%';
+                    pStep.textContent = event.message;
+                    pTitle.textContent = 'TTS 생성 완료';
+                    setTimeout(async () => {
+                      panel.remove();
+                      await showResult(event);
+                      showToast(`음성이 생성되었습니다. (${event.totalChunks}개 파트 병합)`, 'success');
+                    }, 1500);
+                  } else if (event.type === 'error') {
+                    pStep.textContent = event.message;
+                    pBar.style.background = 'var(--danger)';
+                    if (event.savedMessage) {
+                      const savedEl = document.createElement('div');
+                      savedEl.style.cssText = 'margin-top:6px;font-size:12px;color:#f59e0b;';
+                      savedEl.textContent = event.savedMessage;
+                      pBody.appendChild(savedEl);
+                      pNewBtn.style.display = '';
+                    }
+                    setTimeout(() => { if (panel.parentNode) panel.remove(); }, 5000);
+                    showToast(event.message || '생성 중 오류가 발생했습니다.', 'error');
+                  }
+                } catch (pe) {}
+              }
             }
           }
+        } catch (err) {
+          if (err.name === 'AbortError' && shouldRestart) {
+            // "새로 생성" 버튼으로 abort — panel은 이미 제거됨, 루프 재시작
+          } else {
+            if (panel.parentNode) panel.remove();
+            showToast('생성 중 오류: ' + err.message, 'error');
+          }
         }
-      } catch (err) {
-        panel.remove();
-        showToast('생성 중 오류: ' + err.message, 'error');
-      }
+      } while (shouldRestart);
     }
 
     isGenerating = false;
@@ -1318,6 +1351,7 @@ export async function renderTts(container, { api, navigate, showToast }) {
           <span class="tts-fp-step">준비 중...</span>
           <span class="tts-fp-percent">0%</span>
         </div>
+        <button class="tts-fp-new-btn" style="display:none;margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;cursor:pointer;font-size:12px;">새로 생성</button>
       </div>
     `;
     return panel;
